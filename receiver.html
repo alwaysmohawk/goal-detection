@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HHOF goal detector — dev receiver</title>
+<style>
+  :root {
+    --bg: #0e1014;
+    --panel: #161a21;
+    --panel-2: #1d222b;
+    --line: #262d38;
+    --text: #d8dde6;
+    --muted: #7d8694;
+    --accent: #4ec9b0;
+    --warn: #e8c468;
+    --danger: #e85a5a;
+    --goal: #2ecc71;
+    --nogoal: #444;
+    --mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
+  }
+  body { display: grid; grid-template-rows: auto 1fr auto; min-height: 100vh; }
+
+  header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  header h1 {
+    font-size: 14px; font-weight: 600; margin: 0;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--muted);
+  }
+  header h1 strong { color: var(--text); }
+  .ws-status {
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+  }
+  .ws-status .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--danger); margin-right: 6px; vertical-align: middle;
+  }
+  .ws-status.connected .dot { background: var(--accent); }
+
+  main {
+    padding: 20px; gap: 20px;
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "result controls"
+      "log    detectors";
+  }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; grid-template-areas: "result" "controls" "detectors" "log"; }
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 16px;
+  }
+  .panel h2 {
+    font-size: 11px; font-weight: 600; margin: 0 0 12px;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+  }
+
+  /* RESULT panel - the big goal/no-goal indicator */
+  .result { grid-area: result; padding: 0; overflow: hidden; min-height: 220px; position: relative; }
+  .result-inner {
+    height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--panel-2);
+    transition: background 0.15s ease;
+    position: relative;
+    min-height: 220px;
+  }
+  .result-text {
+    font-family: var(--mono);
+    font-size: 92px; font-weight: 800;
+    letter-spacing: -0.04em;
+    color: var(--muted);
+    transition: color 0.15s ease, transform 0.4s cubic-bezier(.2,.9,.3,1.4);
+  }
+  .result-meta {
+    position: absolute; bottom: 14px; left: 16px;
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+  }
+  .result.goal .result-inner { background: var(--goal); }
+  .result.goal .result-text { color: #0e1014; transform: scale(1.06); }
+  .result.nogoal .result-inner { background: #2a1f1f; }
+  .result.nogoal .result-text { color: var(--danger); }
+  .result.armed .result-inner { background: #1f2620; }
+  .result.armed .result-text { color: var(--warn); }
+
+  /* CONTROLS panel */
+  .controls { grid-area: controls; }
+  .control-group + .control-group { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .control-group label {
+    display: block; font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px;
+  }
+
+  /* Toggle */
+  .toggle {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px;
+    padding: 2px;
+  }
+  .toggle button {
+    background: transparent; border: 0; color: var(--muted);
+    padding: 8px 10px; cursor: pointer; font-family: inherit; font-size: 12px;
+    border-radius: 3px; transition: all 0.12s;
+  }
+  .toggle button.active { background: var(--accent); color: #0e1014; font-weight: 600; }
+  .toggle button:hover:not(.active) { color: var(--text); }
+
+  /* Buttons */
+  button.action {
+    width: 100%; padding: 12px;
+    background: var(--accent); color: #0e1014;
+    border: 0; border-radius: 4px; font-family: inherit; font-size: 13px;
+    font-weight: 600; cursor: pointer; transition: opacity 0.15s;
+  }
+  button.action:hover { opacity: 0.85; }
+  button.action:active { transform: translateY(1px); }
+  button.action:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.action.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+
+  .input-row { display: flex; gap: 8px; }
+  .input-row input {
+    flex: 1; padding: 8px 10px;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px;
+    color: var(--text); font-family: var(--mono); font-size: 12px;
+  }
+  .input-row input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+
+  /* Detectors panel */
+  .detectors { grid-area: detectors; }
+  .detector-list { display: flex; flex-direction: column; gap: 8px; }
+  .detector {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px;
+    padding: 10px 12px;
+    display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center;
+    font-family: var(--mono); font-size: 12px;
+  }
+  .detector .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+  }
+  .detector.stale .dot { background: var(--danger); }
+  .detector .name { color: var(--text); }
+  .detector .stats { color: var(--muted); font-size: 11px; }
+  .empty { color: var(--muted); font-size: 12px; font-style: italic; padding: 8px 0; }
+
+  /* Log */
+  .log { grid-area: log; min-height: 280px; display: flex; flex-direction: column; }
+  .log-list {
+    flex: 1; overflow-y: auto; font-family: var(--mono); font-size: 12px;
+    border-top: 1px solid var(--line); margin-top: 4px; padding-top: 8px;
+    max-height: 50vh;
+  }
+  .log-entry {
+    display: grid; grid-template-columns: 78px 80px 1fr; gap: 10px;
+    padding: 4px 0; border-bottom: 1px dashed transparent;
+    color: var(--text);
+  }
+  .log-entry.goal     { color: var(--goal); }
+  .log-entry.no_goal  { color: var(--danger); }
+  .log-entry.shot_incoming { color: var(--warn); }
+  .log-entry.heartbeat { color: var(--muted); }
+  .log-entry .t { color: var(--muted); }
+  .log-entry .type { text-transform: uppercase; font-weight: 600; font-size: 10px; padding-top: 1px; }
+  .log-entry .body { white-space: pre-wrap; word-break: break-all; }
+
+  footer {
+    padding: 8px 20px; border-top: 1px solid var(--line);
+    color: var(--muted); font-family: var(--mono); font-size: 11px;
+    display: flex; justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>HHOF goalie sim · <strong>dev receiver</strong></h1>
+  <div id="wsStatus" class="ws-status"><span class="dot"></span><span class="label">disconnected</span></div>
+</header>
+
+<main>
+
+  <section class="panel result" id="result">
+    <div class="result-inner">
+      <div class="result-text" id="resultText">—</div>
+      <div class="result-meta" id="resultMeta">awaiting events</div>
+    </div>
+  </section>
+
+  <section class="panel controls">
+    <div class="control-group">
+      <label>Detection mode</label>
+      <div class="toggle" id="modeToggle">
+        <button data-mode="armed" class="active">Armed only (1s window)</button>
+        <button data-mode="always_on">Always on</button>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <label>Send shot_incoming</label>
+      <button class="action" id="shotBtn">Trigger shot</button>
+      <div style="margin-top:8px; font-family: var(--mono); font-size: 11px; color: var(--muted);">
+        Simulates the dev team's "shot is about to occur" notification.
+      </div>
+    </div>
+
+    <div class="control-group">
+      <label>Manual reset</label>
+      <button class="action secondary" id="resetBtn">Reset display</button>
+    </div>
+  </section>
+
+  <section class="panel detectors">
+    <h2>Detectors</h2>
+    <div class="detector-list" id="detectorList">
+      <div class="empty">No detectors connected.</div>
+    </div>
+  </section>
+
+  <section class="panel log">
+    <h2>Event log</h2>
+    <div class="log-list" id="logList"></div>
+  </section>
+
+</main>
+
+<footer>
+  <span id="footerInfo">ws: <span id="wsUrl">—</span></span>
+  <span>Toggle: A / Trigger shot: S</span>
+</footer>
+
+<script>
+(() => {
+  // --------- WebSocket ----------
+  const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.hostname + ':8765';
+  document.getElementById('wsUrl').textContent = wsUrl;
+
+  let ws = null;
+  let reconnectDelay = 500;
+
+  function connect() {
+    ws = new WebSocket(wsUrl);
+    ws.onopen = () => {
+      setStatus(true);
+      reconnectDelay = 500;
+      send({ type: 'hello', role: 'ui' });
+    };
+    ws.onclose = () => {
+      setStatus(false);
+      setTimeout(connect, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 1.7, 5000);
+    };
+    ws.onerror = () => { /* close handler does the work */ };
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        handleMessage(msg);
+      } catch (e) {
+        console.warn('bad json', ev.data);
+      }
+    };
+  }
+
+  function send(msg) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      msg.ts = msg.ts || Date.now() / 1000;
+      ws.send(JSON.stringify(msg));
+      return true;
+    }
+    return false;
+  }
+
+  function setStatus(connected) {
+    const el = document.getElementById('wsStatus');
+    el.classList.toggle('connected', connected);
+    el.querySelector('.label').textContent = connected ? 'connected' : 'reconnecting…';
+  }
+
+  // --------- State ---------
+  const detectors = new Map(); // net_id -> { lastSeen, fps, mode, armed, tracks }
+  let currentMode = 'armed';
+  let resultClearTimer = null;
+
+  // --------- Inbound message handling ---------
+  function handleMessage(msg) {
+    const isHeartbeat = msg.type === 'heartbeat';
+    if (!isHeartbeat) addLog(msg);
+
+    switch (msg.type) {
+      case 'goal':           setResult('goal', msg); break;
+      case 'no_goal':        setResult('nogoal', msg); break;
+      case 'shot_incoming':  setResult('armed', msg); break;
+      case 'heartbeat':      handleHeartbeat(msg); break;
+      case 'detector_connected':
+      case 'detector_disconnected':
+        // List rebuilt from heartbeats; nothing to do
+        if (msg.type === 'detector_disconnected' && msg.net_id) {
+          detectors.delete(msg.net_id);
+          renderDetectors();
+        }
+        break;
+    }
+  }
+
+  function handleHeartbeat(msg) {
+    if (!msg.net_id) return;
+    detectors.set(msg.net_id, {
+      lastSeen: Date.now(),
+      fps: msg.fps,
+      mode: msg.mode,
+      armed: msg.armed,
+      tracks: msg.tracks,
+    });
+    renderDetectors();
+  }
+
+  // --------- Result panel ---------
+  function setResult(state, msg) {
+    const root = document.getElementById('result');
+    const text = document.getElementById('resultText');
+    const meta = document.getElementById('resultMeta');
+    root.classList.remove('goal', 'nogoal', 'armed');
+
+    if (state === 'goal') {
+      root.classList.add('goal');
+      text.textContent = 'GOAL';
+      const sp = msg.speed_px_s != null ? `  ·  ${Math.round(msg.speed_px_s)} px/s` : '';
+      meta.textContent = `net=${msg.net_id || '?'}${sp}  ·  shot=${msg.shot_id || '—'}  ·  ${fmt(msg.ts)}`;
+    } else if (state === 'nogoal') {
+      root.classList.add('nogoal');
+      text.textContent = 'NO GOAL';
+      meta.textContent = `net=${msg.net_id || '?'}  ·  shot=${msg.shot_id || '—'}  ·  ${msg.reason || ''}  ·  ${fmt(msg.ts)}`;
+    } else if (state === 'armed') {
+      root.classList.add('armed');
+      text.textContent = 'ARMED';
+      meta.textContent = `net=${msg.net_id || '?'}  ·  shot=${msg.shot_id || '—'}  ·  ${fmt(msg.ts)}`;
+    }
+
+    if (resultClearTimer) clearTimeout(resultClearTimer);
+    // GOAL flashes briefly to match the detector's debug overlay; NO GOAL and
+    // ARMED stay up longer because the operator needs time to read the
+    // shot_id / reason fields.
+    const clearAfter = state === 'goal' ? 500 : 4000;
+    resultClearTimer = setTimeout(() => {
+      root.classList.remove('goal', 'nogoal', 'armed');
+      text.textContent = '—';
+      meta.textContent = 'awaiting events';
+    }, clearAfter);
+  }
+
+  // --------- Detector list ---------
+  function renderDetectors() {
+    const list = document.getElementById('detectorList');
+    if (detectors.size === 0) {
+      list.innerHTML = '<div class="empty">No detectors connected.</div>';
+      return;
+    }
+    const now = Date.now();
+    const rows = [];
+    for (const [netId, d] of detectors) {
+      const stale = now - d.lastSeen > 3000;
+      const armedTxt = d.mode === 'always_on' ? 'always-on' : (d.armed ? 'armed' : 'idle');
+      rows.push(`
+        <div class="detector ${stale ? 'stale' : ''}">
+          <div class="dot"></div>
+          <div>
+            <div class="name">${escape(netId)}</div>
+            <div class="stats">${d.fps?.toFixed?.(1) ?? '?'} fps · ${armedTxt} · ${d.tracks ?? 0} tracks</div>
+          </div>
+          <div class="stats">${stale ? 'STALE' : 'live'}</div>
+        </div>
+      `);
+    }
+    list.innerHTML = rows.join('');
+  }
+  setInterval(renderDetectors, 1000); // refresh stale flags
+
+  // --------- Event log ---------
+  const MAX_LOG = 200;
+  function addLog(msg) {
+    const list = document.getElementById('logList');
+    const row = document.createElement('div');
+    row.className = 'log-entry ' + (msg.type || '');
+    const t = fmt(msg.ts);
+    const body = formatBody(msg);
+    row.innerHTML = `<span class="t">${t}</span><span class="type">${escape(msg.type || '?')}</span><span class="body">${escape(body)}</span>`;
+    list.insertBefore(row, list.firstChild);
+    while (list.childElementCount > MAX_LOG) list.removeChild(list.lastChild);
+  }
+  function formatBody(msg) {
+    const skip = new Set(['type', 'ts']);
+    const parts = [];
+    for (const k of Object.keys(msg)) {
+      if (skip.has(k)) continue;
+      parts.push(`${k}=${typeof msg[k] === 'object' ? JSON.stringify(msg[k]) : msg[k]}`);
+    }
+    return parts.join('  ');
+  }
+  function fmt(ts) {
+    const d = new Date((ts || Date.now() / 1000) * 1000);
+    return d.toTimeString().slice(0, 8) + '.' +
+      String(d.getMilliseconds()).padStart(3, '0');
+  }
+  function escape(s) {
+    return String(s).replace(/[&<>"']/g, c =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // --------- UI controls ---------
+  document.getElementById('modeToggle').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-mode]');
+    if (!btn) return;
+    const mode = btn.dataset.mode;
+    if (mode === currentMode) return;
+    currentMode = mode;
+    document.querySelectorAll('#modeToggle button').forEach(b =>
+      b.classList.toggle('active', b.dataset.mode === mode));
+    send({ type: 'set_mode', mode });
+  });
+
+  document.getElementById('shotBtn').addEventListener('click', () => {
+    const shotId = 'shot_' + Date.now();
+    send({ type: 'shot_incoming', shot_id: shotId });
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    const root = document.getElementById('result');
+    root.classList.remove('goal', 'nogoal', 'armed');
+    document.getElementById('resultText').textContent = '—';
+    document.getElementById('resultMeta').textContent = 'awaiting events';
+    document.getElementById('logList').innerHTML = '';
+  });
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT') return;
+    if (e.key === 's' || e.key === 'S') document.getElementById('shotBtn').click();
+    if (e.key === 'a' || e.key === 'A') {
+      const next = currentMode === 'armed' ? 'always_on' : 'armed';
+      document.querySelector(`#modeToggle button[data-mode="${next}"]`).click();
+    }
+  });
+
+  connect();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "hhof-goal-receiver",
+  "version": "0.1.0",
+  "description": "Dev/test WebSocket broker + receiver page for HHOF goal detector",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.20.0"
+  }
+}

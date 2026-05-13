@@ -1,0 +1,70 @@
+{
+  "net_id": "net_1",
+  "server_url": "ws://localhost:8765",
+  "source": 1,
+  "frame_width": 1280,
+  "frame_height": 720,
+  "target_fps": 120,
+  "capture_backend": "auto",
+  "auto_exposure": true,
+  "manual_exposure": -7,
+  "goal_line": [
+    [
+      12,
+      314
+    ],
+    [
+      1264,
+      339
+    ]
+  ],
+  "net_roi": [
+    [
+      1264,
+      345
+    ],
+    [
+      1273,
+      553
+    ],
+    [
+      1202,
+      717
+    ],
+    [
+      37,
+      715
+    ],
+    [
+      0,
+      649
+    ],
+    [
+      6,
+      314
+    ]
+  ],
+  "puck_min_area": 80,
+  "puck_max_area": 4000,
+  "process_scale": 0.5,
+  "bg_history": 300,
+  "bg_var_threshold": 100,
+  "detect_shadows": true,
+  "fg_threshold": 200,
+  "detection_method": "combined",
+  "dark_threshold": 100,
+  "morph_close_size": 13,
+  "morph_open_size": 3,
+  "min_track_hits": 2,
+  "tracker_max_dist_px": 250,
+  "tracker_max_age_s": 0.4,
+  "armed_window_seconds": 1.0,
+  "goal_cooldown_seconds": 0.5,
+  "always_on_default": true,
+  "log_level": "INFO",
+  "debug_display_scale": 0.5,
+  "debug_goal_flash_seconds": 0.5,
+  "verbose_contour_logging": false,
+  "verbose_contour_log_margin": 0.5,
+  "verbose_log_throttle_hz": 5
+}

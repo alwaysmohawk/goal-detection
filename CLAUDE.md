@@ -79,9 +79,25 @@ If `approach_roi` is absent in config (old calibration), the detector falls back
 
 All messages are JSON with `net_id` and `ts` fields. The detector echoes `shot_id` back in `goal`/`no_goal` so the Node app can correlate events.
 
+## Lucid Vision GigE camera (PHX004S)
+
+Set `capture_backend: "lucid"` in config.json. The `source` key is ignored — the camera is found via `arena_api`.
+
+**One-time setup:**
+1. Install Arena SDK from Lucid's downloads hub
+2. `pip install arena_api`
+3. Assign the camera a static IP on the same subnet as the GigE NIC (use `IpConfigUtility` from the SDK)
+4. Enable jumbo frames (MTU 9000) on the NIC
+5. Set `frame_width: 720` and `frame_height: 540` in config.json (PHX004S native res is ~720×540)
+
+**Exposure:** use `lucid_exposure_us` (microseconds) instead of `manual_exposure` (which is an OpenCV log2-seconds value). 7800 µs ≈ 1/128 s.
+
+**Pixel format:** PHX004S outputs Mono8. `LucidCapture.read()` converts to BGR before returning, so the CV pipeline is unchanged.
+
 ## Common gotchas
 
-- **Windows 60fps cap:** Windows 11 24H2+ MEP silently limits USB cameras. Disable in Settings → Cameras → Basic camera mode.
+- **Windows 60fps cap:** Windows 11 24H2+ MEP silently limits USB cameras. Disable in Settings → Cameras → Basic camera mode. (Not applicable for GigE.)
 - **Approach zone fallback:** if the debug overlay shows a mirrored (auto-computed) approach zone instead of the correct one, re-run `--calibrate` and complete step 4.
 - **Puck not detected:** run `--debug` to watch the foreground mask. Enable `verbose_contour_logging` to see per-contour area/aspect logs and find the threshold to tune.
 - **False positives:** raise `bg_var_threshold`, switch to `"combined"` detection, or raise `min_track_hits`.
+- **Lucid: no device found:** check IP assignment (`IpConfigUtility`), cable, and that no other process (e.g. Arena SDK demo) has the camera open.

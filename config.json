@@ -8,6 +8,7 @@
   "capture_backend": "auto",
   "auto_exposure": false,
   "manual_exposure": -9,
+  "lucid_exposure_us": 7800,
   "goal_line": [
     [
       25,

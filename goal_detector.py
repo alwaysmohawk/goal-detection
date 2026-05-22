@@ -59,12 +59,15 @@ DEFAULT_CONFIG = {
     "frame_width": 1280,
     "frame_height": 720,
     "target_fps": 120,                 # OV9281 will do 120 in good conditions
-    "capture_backend": "auto",         # "auto", "dshow", "msmf", "v4l2", "any"
+    "capture_backend": "auto",         # "auto", "dshow", "msmf", "v4l2", "any", "lucid"
+                                       # Use "lucid" for Lucid Vision GigE cameras (arena_api).
     # Exposure control - mostly relevant for high-fps capture. If frames are coming
     # in at 60fps despite asking for 120, exposure is often the culprit (auto-exposure
     # silently uses long exposures in dim light, capping framerate).
-    "auto_exposure": True,             # set False to use manual_exposure value below
-    "manual_exposure": -7,             # log2(seconds), -7 ≈ 1/128s. Only used when auto=False.
+    "auto_exposure": True,             # set False to use manual_exposure / lucid_exposure_us
+    "manual_exposure": -7,             # OpenCV backends only: log2(seconds), -7 ≈ 1/128s.
+    "lucid_exposure_us": 7800,         # Lucid/Arena backend only: exposure in microseconds.
+                                       # 7800 ≈ 1/128s. Only used when auto_exposure=False.
     "goal_line": None,                 # [[x1,y1],[x2,y2]] - set via --calibrate
     "net_roi": None,                   # [[x,y], ...] polygon - set via --calibrate
     "approach_roi": None,              # [[x,y], ...] polygon in front of goal - set via --calibrate
@@ -373,21 +376,120 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Lucid Vision GigE capture (arena_api)
+# ---------------------------------------------------------------------------
+
+class LucidCapture:
+    """
+    Wraps Lucid Vision's arena_api to present the same .read()/.release()
+    interface as cv2.VideoCapture.
+
+    Pixel format is forced to Mono8 (PHX004S is monochrome). Frames are
+    returned as BGR (3-channel) so the rest of the pipeline is unchanged.
+
+    Setup:
+      1. Install Arena SDK from https://thinklucid.com/downloads-hub/
+      2. pip install arena_api
+      3. Set capture_backend: "lucid" in config.json
+      4. Make sure the camera has a valid IP on the same subnet as the NIC
+         (use IpConfigUtility from the Arena SDK install to assign one).
+      5. Enable jumbo frames (MTU 9000) on the GigE NIC for full bandwidth.
+
+    Resolution note: the PHX004S is 0.4 MP. Its native resolution is
+    720x540. Set frame_width/frame_height in config.json accordingly —
+    requesting an unsupported resolution will raise an error at startup.
+    """
+
+    def __init__(self, cfg: dict, log: logging.Logger):
+        try:
+            from arena_api.system import create_system
+        except ImportError:
+            log.error("arena_api not installed. Run: pip install arena_api")
+            sys.exit(1)
+
+        self._log = log
+        self._system = create_system()
+        devices = self._system.create_device()
+        if not devices:
+            log.error("No Lucid GigE devices found. "
+                      "Check camera is connected, powered, and IP is configured.")
+            sys.exit(2)
+
+        self._device = devices[0]
+        nodemap = self._device.nodemap
+
+        # Mono8: 8-bit grayscale — the native format for the PHX004S.
+        nodemap['PixelFormat'].value = 'Mono8'
+
+        nodemap['Width'].value = cfg['frame_width']
+        nodemap['Height'].value = cfg['frame_height']
+
+        nodemap['AcquisitionFrameRateEnable'].value = True
+        nodemap['AcquisitionFrameRate'].value = float(cfg['target_fps'])
+
+        if cfg.get('auto_exposure', True):
+            nodemap['ExposureAuto'].value = 'Continuous'
+        else:
+            nodemap['ExposureAuto'].value = 'Off'
+            nodemap['ExposureTime'].value = float(cfg.get('lucid_exposure_us', 7800))
+
+        self._w = int(nodemap['Width'].value)
+        self._h = int(nodemap['Height'].value)
+        self._fps = float(nodemap['AcquisitionFrameRate'].value)
+
+        self._device.start_stream()
+        log.info(f"Lucid Arena capture open: {self._w}x{self._h} @ {self._fps:.1f}fps "
+                 f"Mono8->BGR  device={devices[0].nodemap['DeviceModelName'].value}")
+
+    def read(self) -> tuple[bool, np.ndarray | None]:
+        try:
+            buffer = self._device.get_buffer(timeout=1000)
+            # Copy before requeue — buffer memory belongs to the SDK.
+            mono = np.array(buffer.data, dtype=np.uint8).reshape(self._h, self._w)
+            self._device.requeue_buffer(buffer)
+            bgr = cv2.cvtColor(mono, cv2.COLOR_GRAY2BGR)
+            return True, bgr
+        except Exception as e:
+            self._log.warning(f"Lucid buffer read failed: {e}")
+            return False, None
+
+    def release(self):
+        try:
+            self._device.stop_stream()
+            self._system.destroy_device()
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
 # Capture abstraction
 # ---------------------------------------------------------------------------
 
-def open_capture(cfg: dict, log: logging.Logger) -> cv2.VideoCapture:
+def open_capture(cfg: dict, log: logging.Logger):
     """
-    Currently uses cv2.VideoCapture (works for USB webcams on Windows + Linux).
-    On the Pi with a CSI OV9281, swap this for a picamera2 wrapper that yields
-    BGR frames. The rest of the pipeline doesn't care.
+    Returns an object with .read() -> (ok, BGR frame) and .release().
+    For USB/file sources: cv2.VideoCapture.
+    For Lucid GigE cameras: LucidCapture (set capture_backend: "lucid").
     """
     src = cfg["source"]
+
+    backend_name = (cfg.get("capture_backend") or "auto").lower()
+
+    # Lucid GigE path — source index is ignored; camera is found via arena_api.
+    if backend_name == "lucid":
+        cap = LucidCapture(cfg, log)
+        ok, test_frame = cap.read()
+        if not ok or test_frame is None:
+            log.error("Lucid camera opened but failed to deliver a frame. "
+                      "Check IP config, cable, and jumbo frame MTU setting.")
+            cap.release()
+            sys.exit(2)
+        return cap
 
     # Pick a backend. Auto picks the best native backend per platform:
     # DSHOW on Windows, V4L2 on Linux (avoids GStreamer pipeline confusion),
     # ANY elsewhere (lets OpenCV decide).
-    backend_name = (cfg.get("capture_backend") or "auto").lower()
+
     if sys.platform.startswith("win"):
         auto_backend = cv2.CAP_DSHOW
     elif sys.platform.startswith("linux"):
@@ -458,7 +560,7 @@ def open_capture(cfg: dict, log: logging.Logger) -> cv2.VideoCapture:
              f"{cap.get(cv2.CAP_PROP_FRAME_HEIGHT):.0f} @ "
              f"{cap.get(cv2.CAP_PROP_FPS):.1f}fps "
              f"format={fourcc_str} backend={backend_str}")
-    return cap
+    return cap  # cv2.VideoCapture
 
 
 # ---------------------------------------------------------------------------

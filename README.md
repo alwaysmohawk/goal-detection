@@ -327,6 +327,37 @@ When the real Node app is ready:
 
 ---
 
+## Lucid Vision GigE camera (PHX004S)
+
+Set `capture_backend: "lucid"` in `config.json`. The `source` key is ignored —
+the camera is discovered automatically via `arena_api`.
+
+### One-time setup
+
+1. **Install Arena SDK** — download from Lucid's downloads hub (Windows or Linux installer)
+2. **Install Python wrapper** — `pip install arena_api`
+3. **Assign camera IP** — use `IpConfigUtility` (bundled with Arena SDK) to give
+   the camera a static IP on the same subnet as your GigE NIC
+4. **Enable jumbo frames** — set MTU 9000 on the GigE NIC (Device Manager →
+   adapter properties → Advanced → Jumbo Packet). Required for sustained throughput.
+5. **Update resolution** — the PHX004S native resolution is ~720×540. Set
+   `frame_width: 720` and `frame_height: 540` in `config.json` (requesting an
+   unsupported size will error at startup).
+
+### Exposure for Lucid
+
+Use `lucid_exposure_us` (microseconds) when `auto_exposure: false`. The standard
+`manual_exposure` key is an OpenCV log2-seconds value and is ignored for the Lucid
+backend. 7800 µs ≈ 1/128 s.
+
+### How it works
+
+The `LucidCapture` class wraps `arena_api` with the same `.read()` / `.release()`
+interface as `cv2.VideoCapture`. The PHX004S streams Mono8 frames; `LucidCapture`
+converts each frame to BGR before returning it so the CV pipeline is unchanged.
+
+---
+
 ## Hardware path on the Pi
 
 Currently uses USB capture via OpenCV's V4L2 backend. For the **CSI OV9281**

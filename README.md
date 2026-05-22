@@ -64,7 +64,7 @@ python3 goal_detector.py --debug                        # show overlay windows
 
 ## Calibration
 
-`--calibrate` opens an interactive 3-step GUI. It needs a display attached
+`--calibrate` opens an interactive 4-step GUI. It needs a display attached
 (directly, via VNC, or via SSH X-forwarding).
 
 1. **Capture frame** — point camera, press `SPACE`. Press `Q` to abort.
@@ -72,11 +72,16 @@ python3 goal_detector.py --debug                        # show overlay windows
    it meets the ice). Press `ENTER` to accept, `R` to reset.
 3. **Net interior** — click 4+ vertices outlining the inside of the net
    (where pucks count as IN). Press `ENTER` to accept, `R` to reset.
+4. **Approach zone** — click 4+ vertices outlining the area **in front of**
+   the goal (the shooting / approach zone). The net ROI and goal line stay
+   visible for reference. Drawn in cyan. Press `ENTER` to accept, `R` to reset.
 
-The result is saved to `config.json`. The script also automatically computes
-an **approach zone** (mirror of the net polygon across the goal line) so
-pucks are detected before they cross. You don't have to draw this; it's
-derived from the net polygon at runtime.
+All four regions are saved to `config.json`. The approach zone is needed so
+pucks are detected before they cross the line — without it the tracker has
+no "before" position to compare against and goals are missed. If you run
+without a saved `approach_roi` (e.g. an old config), the script falls back
+to auto-computing it by mirroring the net polygon across the goal line, and
+logs a reminder to re-run `--calibrate`.
 
 Re-run `--calibrate` any time:
 - The camera moves
@@ -133,7 +138,8 @@ fall back to defaults.
 | Key | Default | Description |
 |---|---|---|
 | `goal_line` | `null` | `[[x1,y1],[x2,y2]]` — two endpoints of the goal line in image coordinates. |
-| `net_roi` | `null` | `[[x,y], …]` — polygon of the net interior in image coordinates. The approach zone (front of the line) is auto-derived as a mirror of this polygon. |
+| `net_roi` | `null` | `[[x,y], …]` — polygon of the net interior in image coordinates (where pucks count as IN). |
+| `approach_roi` | `null` | `[[x,y], …]` — polygon of the approach / shooting zone in front of the goal line. Drawn manually in step 4 of `--calibrate`. Falls back to auto-mirroring `net_roi` across the goal line if absent. |
 
 ### Detection method
 

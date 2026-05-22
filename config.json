@@ -6,42 +6,52 @@
   "frame_height": 720,
   "target_fps": 120,
   "capture_backend": "auto",
-  "auto_exposure": true,
-  "manual_exposure": -7,
+  "auto_exposure": false,
+  "manual_exposure": -9,
   "goal_line": [
     [
-      12,
-      314
+      25,
+      467
     ],
     [
-      1264,
-      339
+      1267,
+      434
     ]
   ],
   "net_roi": [
     [
-      1264,
-      345
+      16,
+      473
     ],
     [
-      1273,
-      553
+      8,
+      707
     ],
     [
-      1202,
-      717
+      1275,
+      713
     ],
     [
-      37,
-      715
+      1275,
+      434
+    ]
+  ],
+  "approach_roi": [
+    [
+      1276,
+      430
     ],
     [
-      0,
-      649
+      1268,
+      77
     ],
     [
-      6,
-      314
+      4,
+      79
+    ],
+    [
+      12,
+      469
     ]
   ],
   "puck_min_area": 80,

@@ -67,6 +67,7 @@ DEFAULT_CONFIG = {
     "manual_exposure": -7,             # log2(seconds), -7 ≈ 1/128s. Only used when auto=False.
     "goal_line": None,                 # [[x1,y1],[x2,y2]] - set via --calibrate
     "net_roi": None,                   # [[x,y], ...] polygon - set via --calibrate
+    "approach_roi": None,              # [[x,y], ...] polygon in front of goal - set via --calibrate
 
     # ---- Detection ----
     "puck_min_area": 80,               # px^2 - applied to MERGED blob, not raw fragments
@@ -194,19 +195,20 @@ CALIB_WINDOW = "Goal Detector Calibration"
 
 def calibrate(cfg: dict, log: logging.Logger) -> None:
     """
-    Interactive 3-step calibration:
+    Interactive 4-step calibration:
       1. Capture a clean frame from the camera.
       2. Click 2 points to define the goal line.
       3. Click 4+ points to outline the net interior polygon.
+      4. Click 4+ points to outline the approach zone in front of the goal.
     Reuses a single window across all phases for a clearer UX.
     """
     cap = open_capture(cfg, log)
     cv2.namedWindow(CALIB_WINDOW)
 
     # ============================================================
-    # STEP 1/3 — capture a clean frame
+    # STEP 1/4 — capture a clean frame
     # ============================================================
-    log.info("Step 1/3: position the camera, then press SPACE to capture a reference frame.")
+    log.info("Step 1/4: position the camera, then press SPACE to capture a reference frame.")
 
     frame = None
     while True:
@@ -216,7 +218,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
             cap.release()
             cv2.destroyAllWindows()
             return
-        _draw_banner(f, 1, 3, "Capture reference frame",
+        _draw_banner(f, 1, 4, "Capture reference frame",
                      "[SPACE] capture    [Q] quit")
         cv2.imshow(CALIB_WINDOW, f)
         k = cv2.waitKey(1) & 0xFF
@@ -236,7 +238,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
     # so the banner can be redrawn fresh on every iteration of subsequent steps.
 
     # ============================================================
-    # STEP 2/3 — goal line (2 points)
+    # STEP 2/4 — goal line (2 points)
     # ============================================================
     line_pts: list[tuple[int, int]] = []
 
@@ -246,7 +248,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
             line_pts.append((x, y))
 
     cv2.setMouseCallback(CALIB_WINDOW, on_line_click)
-    log.info("Step 2/3: click LEFT POST, then RIGHT POST on the goal line. Enter to confirm.")
+    log.info("Step 2/4: click LEFT POST, then RIGHT POST on the goal line. Enter to confirm.")
 
     while True:
         disp = frame.copy()
@@ -262,7 +264,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
         instr = (f"clicks: {len(line_pts)}/2    "
                  f"[ENTER] confirm    [R] reset    [Q] quit")
         title = "Click LEFT POST, then RIGHT POST on the goal line"
-        _draw_banner(disp, 2, 3, title, instr)
+        _draw_banner(disp, 2, 4, title, instr)
         cv2.imshow(CALIB_WINDOW, disp)
         k = cv2.waitKey(20) & 0xFF
         if k == 13 and len(line_pts) == 2:  # Enter
@@ -274,7 +276,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
             return
 
     # ============================================================
-    # STEP 3/3 — net ROI polygon (4+ points)
+    # STEP 3/4 — net ROI polygon (4+ points)
     # ============================================================
     poly_pts: list[tuple[int, int]] = []
 
@@ -283,7 +285,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
             poly_pts.append((x, y))
 
     cv2.setMouseCallback(CALIB_WINDOW, on_poly_click)
-    log.info("Step 3/3: click 4+ points around the inside of the net. Enter when done.")
+    log.info("Step 3/4: click 4+ points around the inside of the net. Enter when done.")
 
     while True:
         disp = frame.copy()
@@ -304,7 +306,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
                  f"[ENTER]{'confirm' if ready else ' need more pts'}    "
                  f"[R] reset    [Q] quit")
         title = "Click around the inside of the net (where pucks count as IN)"
-        _draw_banner(disp, 3, 3, title, instr)
+        _draw_banner(disp, 3, 4, title, instr)
         cv2.imshow(CALIB_WINDOW, disp)
         k = cv2.waitKey(20) & 0xFF
         if k == 13 and ready:
@@ -315,10 +317,57 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
             cv2.destroyAllWindows()
             return
 
+    # ============================================================
+    # STEP 4/4 — approach zone polygon (4+ points)
+    # ============================================================
+    approach_pts: list[tuple[int, int]] = []
+
+    def on_approach_click(event, x, y, flags, param):
+        if event == cv2.EVENT_LBUTTONDOWN and y > 70:
+            approach_pts.append((x, y))
+
+    cv2.setMouseCallback(CALIB_WINDOW, on_approach_click)
+    log.info("Step 4/4: click 4+ points around the area in FRONT of the goal. Enter when done.")
+
+    while True:
+        disp = frame.copy()
+        # Show the goal line and net ROI for reference
+        cv2.line(disp, tuple(line_pts[0]), tuple(line_pts[1]), (0, 0, 255), 2)
+        overlay = disp.copy()
+        cv2.fillPoly(overlay, [np.array(poly_pts)], (0, 255, 0))
+        disp = cv2.addWeighted(overlay, 0.15, disp, 0.85, 0)
+        cv2.polylines(disp, [np.array(poly_pts)], True, (0, 255, 0), 1)
+        # Draw approach zone in-progress in cyan
+        for p in approach_pts:
+            cv2.circle(disp, p, 5, (0, 220, 220), -1)
+        if len(approach_pts) >= 2:
+            cv2.polylines(disp, [np.array(approach_pts)], False, (0, 220, 220), 2)
+        if len(approach_pts) >= 3:
+            overlay2 = disp.copy()
+            cv2.fillPoly(overlay2, [np.array(approach_pts)], (0, 220, 220))
+            disp = cv2.addWeighted(overlay2, 0.2, disp, 0.8, 0)
+
+        ready = len(approach_pts) >= 4
+        instr = (f"points: {len(approach_pts)} (need 4+)    "
+                 f"[ENTER]{'confirm' if ready else ' need more pts'}    "
+                 f"[R] reset    [Q] quit")
+        title = "Click around the area IN FRONT of the goal (approach / shooting zone)"
+        _draw_banner(disp, 4, 4, title, instr)
+        cv2.imshow(CALIB_WINDOW, disp)
+        k = cv2.waitKey(20) & 0xFF
+        if k == 13 and ready:
+            break
+        if k == ord('r'):
+            approach_pts.clear()
+        if k == ord('q'):
+            cv2.destroyAllWindows()
+            return
+
     cv2.destroyAllWindows()
 
     cfg["goal_line"] = [list(p) for p in line_pts]
     cfg["net_roi"] = [list(p) for p in poly_pts]
+    cfg["approach_roi"] = [list(p) for p in approach_pts]
     save_config(cfg)
     log.info(f"Calibration saved to {CONFIG_PATH}")
 
@@ -705,12 +754,21 @@ def run_detector(cfg: dict, ws: WSClient, debug: bool, log: logging.Logger) -> N
         # reflection = p mirrored across that foot
         return (int(2 * fx - p[0]), int(2 * fy - p[1]))
 
-    # Approach zone: mirror each net polygon vertex across the goal line.
-    approach_poly = np.array(
-        [_reflect_point_across_line(tuple(p), line_a, line_b)
-         for p in cfg["net_roi"]],
-        dtype=np.int32,
-    )
+    # Approach zone: use the manually-drawn polygon from calibration if present,
+    # otherwise fall back to reflecting the net polygon across the goal line.
+    if cfg.get("approach_roi"):
+        approach_poly = np.array(cfg["approach_roi"], dtype=np.int32)
+        log.info(f"Detection mask: net polygon ({len(net_roi_np)} verts) + "
+                 f"manual approach zone ({len(approach_poly)} verts)")
+    else:
+        approach_poly = np.array(
+            [_reflect_point_across_line(tuple(p), line_a, line_b)
+             for p in cfg["net_roi"]],
+            dtype=np.int32,
+        )
+        log.info(f"Detection mask: net polygon ({len(net_roi_np)} verts) + "
+                 f"reflected approach zone ({len(approach_poly)} verts) "
+                 f"[re-run --calibrate to draw approach zone manually]")
 
     # Build the combined mask: net interior + approach zone.
     # We also include a thin band ON the line itself to ensure no gap if the
@@ -718,8 +776,6 @@ def run_detector(cfg: dict, ws: WSClient, debug: bool, log: logging.Logger) -> N
     cv2.fillPoly(detection_mask, [net_roi_np], 255)
     cv2.fillPoly(detection_mask, [approach_poly], 255)
     cv2.line(detection_mask, line_a, line_b, 255, thickness=10)
-    log.info(f"Detection mask: net polygon ({len(net_roi_np)} verts) + "
-             f"reflected approach zone ({len(approach_poly)} verts)")
 
     # Pre-compute the scaled-down detection mask + dimensions so we don't
     # rebuild them every frame.

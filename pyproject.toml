@@ -1,19 +1,15 @@
 [project]
 name = "goal-detection"
 version = "0.1.0"
-description = "HHOF Goalie Simulator — camera-based goal detection"
+description = "HHOF Goalie Simulator - camera-based goal detection"
 requires-python = ">=3.11"
 dependencies = [
     "numpy",
     "opencv-python",
     "websockets",
     # arena_api is distributed by Lucid Vision as a .whl file alongside the
-    # Arena SDK -- it is not on PyPI. install.ps1 handles this automatically.
+    # Arena SDK - it is not on PyPI. install.ps1 handles this automatically.
 ]
 
-[project.scripts]
-goal-detector = "goal_detector:main"
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+[tool.uv]
+package = false

@@ -86,7 +86,7 @@ if ($UseGigE) {
         Write-Host "     2. arena_api  (the Python wheel, e.g. arena_api-X.Y.Z-py3-none-any.whl)" -ForegroundColor Yellow
         Write-Host ""
         Write-Host "   Opening Lucid downloads page now..." -ForegroundColor Cyan
-        Start-Process "https://thinklucid.com/downloads-hub/"
+        Start-Process "cmd" "/c start https://thinklucid.com/downloads-hub/"
         Write-Host ""
         Write-Host "   Download and run the Arena SDK installer, then press Enter to continue." -ForegroundColor Yellow
         Write-Host "   (Keep the arena_api .whl file handy -- we will ask for it next.)" -ForegroundColor Yellow
@@ -195,7 +195,7 @@ if ($serviceExists) {
 $LogDir = "$RepoRoot\logs"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
-$UvArgs = "run --project `"$RepoRoot`" goal-detector --server $ServerUrl --net-id $NetId"
+$UvArgs = "run --project `"$RepoRoot`" python `"$RepoRoot\goal_detector.py`" --server $ServerUrl --net-id $NetId"
 
 & $NssmPath install    $ServiceName $UvPath $UvArgs
 & $NssmPath set        $ServiceName AppDirectory               $RepoRoot

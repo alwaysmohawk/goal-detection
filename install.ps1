@@ -74,6 +74,7 @@ Write-Ok "Core dependencies ready (numpy, opencv-python, websockets)"
 # C++ DLLs via ctypes - those must be installed separately from Lucid's site.
 
 if ($UseGigE) {
+    # -- Arena SDK C++ DLLs -----------------------------------------------
     Write-Step "Checking Arena SDK native DLLs..."
 
     $ArenaDllDir = "C:\Program Files\Lucid Vision Labs\Arena SDK\x64Release"
@@ -83,15 +84,65 @@ if ($UseGigE) {
         Start-Process "https://thinklucid.com/downloads-hub/"
         Write-Host ""
         Write-Host "   Download and install the Arena SDK, then press Enter to continue." -ForegroundColor Yellow
-        Write-Host "   (Press S to skip if you want to finish setup without the GigE camera)" -ForegroundColor Yellow
+        Write-Host "   (Press S to skip GigE setup entirely)" -ForegroundColor Yellow
         $key = Read-Host "   [Enter / S]"
         if ($key.Trim().ToLower() -eq "s") {
             Write-Warn "Skipping Arena SDK - GigE camera will not work until it is installed"
+            $UseGigE = $false
             break
         }
     }
     if (Test-Path "$ArenaDllDir\ArenaC_v140.dll") {
         Write-Ok "Arena SDK DLLs found at $ArenaDllDir"
+    }
+
+    # -- arena_api Python wheel -------------------------------------------
+    if ($UseGigE) {
+        Write-Step "Checking arena_api Python package..."
+
+        $ErrorActionPreference = "Continue"
+        & $UvPath run --project $RepoRoot python -c "import arena_api" 2>$null | Out-Null
+        $arenaApiOk = ($LASTEXITCODE -eq 0)
+        $ErrorActionPreference = "Stop"
+
+        if ($arenaApiOk) {
+            Write-Ok "arena_api already installed"
+        } else {
+            # Search common locations for the Lucid-distributed wheel
+            $SearchDirs = @(
+                "C:\Program Files\Lucid Vision Labs\Arena SDK",
+                "$env:USERPROFILE\Downloads",
+                "$env:USERPROFILE\Desktop",
+                $RepoRoot
+            )
+            $Wheel = $null
+            foreach ($dir in $SearchDirs) {
+                $Wheel = Get-ChildItem -Path $dir -Filter "arena_api*.whl" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($Wheel) { break }
+            }
+
+            while (-not $Wheel) {
+                Write-Warn "arena_api wheel not found in common locations."
+                Write-Host "   Download the Arena Python SDK wheel from Lucid's downloads page." -ForegroundColor Yellow
+                Write-Host "   Then paste the full path to the .whl file below, or press S to skip." -ForegroundColor Yellow
+                $input = Read-Host "   Path to arena_api*.whl [S to skip]"
+                if ($input.Trim().ToLower() -eq "s") { break }
+                if (Test-Path $input.Trim()) {
+                    $Wheel = Get-Item $input.Trim()
+                } else {
+                    Write-Warn "File not found: $($input.Trim())"
+                }
+            }
+
+            if ($Wheel) {
+                Write-Host "   Installing $($Wheel.Name)..."
+                & $UvPath pip install --project $RepoRoot $Wheel.FullName
+                if ($LASTEXITCODE -ne 0) { Write-Fail "arena_api wheel install failed" }
+                Write-Ok "arena_api installed"
+            } else {
+                Write-Warn "Skipping arena_api - GigE camera will not work until it is installed"
+            }
+        }
     }
 } else {
     Write-Step "Skipping Arena SDK check (USB camera mode)"

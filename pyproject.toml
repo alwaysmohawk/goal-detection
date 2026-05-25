@@ -7,7 +7,8 @@ dependencies = [
     "numpy",
     "opencv-python",
     "websockets",
-    "arena_api",
+    # arena_api is distributed by Lucid Vision as a .whl file alongside the
+    # Arena SDK -- it is not on PyPI. install.ps1 handles this automatically.
 ]
 
 [project.scripts]

@@ -2,62 +2,79 @@
   "net_id": "net_1",
   "server_url": "ws://localhost:8765",
   "source": 1,
-  "frame_width": 1280,
-  "frame_height": 720,
-  "target_fps": 120,
-  "capture_backend": "auto",
+  "frame_width": 720,
+  "frame_height": 540,
+  "target_fps": 200,
+  "capture_backend": "lucid",
   "auto_exposure": false,
   "manual_exposure": -9,
-  "lucid_exposure_us": 7800,
+  "lucid_sdk_path": null,
+  "lucid_exposure_us": 2000,
   "goal_line": [
     [
-      25,
-      467
+      38,
+      237
     ],
     [
-      1267,
-      434
+      716,
+      262
     ]
   ],
   "net_roi": [
     [
-      16,
-      473
+      719,
+      265
     ],
     [
-      8,
-      707
+      697,
+      389
     ],
     [
-      1275,
-      713
+      612,
+      452
     ],
     [
-      1275,
-      434
+      436,
+      468
+    ],
+    [
+      193,
+      447
+    ],
+    [
+      122,
+      395
+    ],
+    [
+      80,
+      329
+    ],
+    [
+      68,
+      240
     ]
   ],
   "approach_roi": [
     [
-      1276,
-      430
+      67,
+      240
     ],
     [
-      1268,
-      77
+      28,
+      89
     ],
     [
-      4,
-      79
+      699,
+      90
     ],
     [
-      12,
-      469
+      714,
+      259
     ]
   ],
   "puck_min_area": 80,
   "puck_max_area": 4000,
-  "process_scale": 0.5,
+  "process_scale": 1,
   "bg_history": 300,
   "bg_var_threshold": 100,
   "detect_shadows": true,

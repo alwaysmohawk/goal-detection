@@ -66,6 +66,10 @@ DEFAULT_CONFIG = {
     # silently uses long exposures in dim light, capping framerate).
     "auto_exposure": True,             # set False to use manual_exposure / lucid_exposure_us
     "manual_exposure": -7,             # OpenCV backends only: log2(seconds), -7 ≈ 1/128s.
+    "lucid_sdk_path": None,            # Lucid/Arena backend only (Windows): path to Arena SDK
+                                       # install dir so the native DLLs can be found. Defaults
+                                       # to "C:\Program Files\Lucid Vision Labs\Arena SDK".
+                                       # Only needed if you installed to a non-default location.
     "lucid_exposure_us": 7800,         # Lucid/Arena backend only: exposure in microseconds.
                                        # 7800 ≈ 1/128s. Only used when auto_exposure=False.
     "goal_line": None,                 # [[x1,y1],[x2,y2]] - set via --calibrate
@@ -217,10 +221,9 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
     while True:
         ok, f = cap.read()
         if not ok:
-            log.error("Camera read failed during calibration")
-            cap.release()
-            cv2.destroyAllWindows()
-            return
+            log.warning("Camera not ready yet, retrying...")
+            time.sleep(0.05)
+            continue
         _draw_banner(f, 1, 4, "Capture reference frame",
                      "[SPACE] capture    [Q] quit")
         cv2.imshow(CALIB_WINDOW, f)
@@ -401,52 +404,150 @@ class LucidCapture:
     """
 
     def __init__(self, cfg: dict, log: logging.Logger):
+        # On Windows, Python 3.8+ doesn't search PATH for DLLs. Add the SDK's
+        # DLL directory explicitly before importing arena_api so it can load
+        # ArenaC_v140.dll and friends. lucid_sdk_path in config.json overrides
+        # the default install location.
+        if sys.platform.startswith("win"):
+            import os
+            sdk_path = (cfg.get("lucid_sdk_path") or
+                        r"C:\Program Files\Lucid Vision Labs\Arena SDK\x64Release")
+            try:
+                os.add_dll_directory(sdk_path)
+                log.info(f"Added Arena SDK DLL directory: {sdk_path}")
+            except (OSError, FileNotFoundError) as e:
+                log.error(f"Could not add Arena SDK DLL directory '{sdk_path}': {e}")
+                log.error("Set lucid_sdk_path in config.json to your Arena SDK install directory.")
+                sys.exit(1)
+
         try:
-            from arena_api.system import create_system
-        except ImportError:
-            log.error("arena_api not installed. Run: pip install arena_api")
+            from arena_api.system import system as _arena_system
+        except Exception as e:
+            log.error(f"Failed to import arena_api: {e}")
+            log.error("Make sure the Lucid Arena SDK is installed. "
+                      "Download from https://thinklucid.com/downloads-hub/")
             sys.exit(1)
 
         self._log = log
-        self._system = create_system()
-        devices = self._system.create_device()
-        if not devices:
+        self._arena = _arena_system
+
+        # Trigger device discovery and create the first device found.
+        device_infos = self._arena.device_infos
+        if not device_infos:
             log.error("No Lucid GigE devices found. "
                       "Check camera is connected, powered, and IP is configured.")
             sys.exit(2)
 
-        self._device = devices[0]
+        self._device = self._arena.create_device(device_infos[0])[0]
         nodemap = self._device.nodemap
 
-        # Mono8: 8-bit grayscale — the native format for the PHX004S.
-        nodemap['PixelFormat'].value = 'Mono8'
+        # --- Match the ArenaView settings that produced 288fps ---
 
+        # Remove bandwidth cap (off by default in ArenaView).
+        nodemap['DeviceLinkThroughputLimitMode'].value = 'Off'
+
+        # Set jumbo-frame packet size on the CAMERA side. This is the key
+        # setting: with the default ~1500-byte packets and GevSCPD=80, the
+        # inter-packet delay overhead alone limits fps to ~50-60fps. At 9000
+        # bytes there are ~6x fewer packets per frame so that overhead drops
+        # to nearly nothing and the camera can hit its hardware maximum.
+        nodemap['GevSCPSPacketSize'].value = 9000
+
+        nodemap['PixelFormat'].value = 'Mono8'
         nodemap['Width'].value = cfg['frame_width']
         nodemap['Height'].value = cfg['frame_height']
 
-        nodemap['AcquisitionFrameRateEnable'].value = True
-        nodemap['AcquisitionFrameRate'].value = float(cfg['target_fps'])
+        # Run at maximum hardware framerate (no explicit cap).
+        nodemap['AcquisitionFrameRateEnable'].value = False
 
         if cfg.get('auto_exposure', True):
             nodemap['ExposureAuto'].value = 'Continuous'
+            # ExposureAutoLimitAuto=Continuous is the Lucid-specific node that
+            # automatically caps auto-exposure time to fit the current frame
+            # rate — cleaner than computing a manual limit.
+            try:
+                nodemap['ExposureAutoLimitAuto'].value = 'Continuous'
+            except Exception:
+                pass
         else:
             nodemap['ExposureAuto'].value = 'Off'
-            nodemap['ExposureTime'].value = float(cfg.get('lucid_exposure_us', 7800))
+            nodemap['ExposureTime'].value = float(cfg.get('lucid_exposure_us', 2000))
 
         self._w = int(nodemap['Width'].value)
         self._h = int(nodemap['Height'].value)
-        self._fps = float(nodemap['AcquisitionFrameRate'].value)
 
-        self._device.start_stream()
-        log.info(f"Lucid Arena capture open: {self._w}x{self._h} @ {self._fps:.1f}fps "
-                 f"Mono8->BGR  device={devices[0].nodemap['DeviceModelName'].value}")
+        # --- TL stream nodemap (host-side transport settings) ---
+        # Set BEFORE start_stream.
+        tl = self._device.tl_stream_nodemap
+        try:
+            tl['StreamAutoNegotiatePacketSize'].value = True
+        except Exception:
+            log.warning("StreamAutoNegotiatePacketSize not available")
+        try:
+            tl['StreamPacketResendEnable'].value = True
+        except Exception:
+            log.warning("StreamPacketResendEnable not available")
+
+        # Raise Windows timer resolution to 1ms before starting the stream.
+        # The default Windows scheduler tick is 15.625ms (64Hz). arena_api's
+        # get_buffer() uses a Windows wait internally, so without this it
+        # rounds up to the nearest 15.625ms tick even when a frame is already
+        # queued — capping effective fps at ~63 regardless of camera settings.
+        # ArenaView sets this automatically as a native Windows app.
+        if sys.platform.startswith("win"):
+            try:
+                import ctypes
+                ctypes.windll.winmm.timeBeginPeriod(1)
+                self._timer_period_set = True
+                log.info("Windows timer resolution set to 1ms")
+            except Exception:
+                self._timer_period_set = False
+        else:
+            self._timer_period_set = False
+
+        # 10 buffers lets the camera pre-fill the queue so get_buffer()
+        # returns immediately rather than blocking for the next frame.
+        self._device.start_stream(10)
+
+        # Log camera state so we can see what's actually configured.
+        def _node_val(nm, name):
+            try:
+                return nm[name].value
+            except Exception:
+                return "N/A"
+
+        actual_fps = _node_val(nodemap, 'AcquisitionFrameRate')
+        log.info(f"Lucid Arena capture open: {self._w}x{self._h} "
+                 f"device={_node_val(nodemap, 'DeviceModelName')}")
+        log.info(f"  AcquisitionFrameRateEnable : {_node_val(nodemap, 'AcquisitionFrameRateEnable')}")
+        log.info(f"  AcquisitionFrameRate       : {actual_fps}")
+        log.info(f"  AcquisitionMode            : {_node_val(nodemap, 'AcquisitionMode')}")
+        log.info(f"  ExposureAuto               : {_node_val(nodemap, 'ExposureAuto')}")
+        log.info(f"  ExposureTime               : {_node_val(nodemap, 'ExposureTime')} µs")
+        log.info(f"  GevSCPSPacketSize          : {_node_val(nodemap, 'GevSCPSPacketSize')}")
+        log.info(f"  GevSCPD                    : {_node_val(nodemap, 'GevSCPD')}")
+        log.info(f"  StreamAutoNegotiatePacketSize : {_node_val(tl, 'StreamAutoNegotiatePacketSize')}")
+        log.info(f"  StreamPacketResendEnable   : {_node_val(tl, 'StreamPacketResendEnable')}")
+        try:
+            self._fps = float(actual_fps)
+        except Exception:
+            self._fps = float(cfg['target_fps'])
 
     def read(self) -> tuple[bool, np.ndarray | None]:
         try:
             buffer = self._device.get_buffer(timeout=1000)
-            # Copy before requeue — buffer memory belongs to the SDK.
-            mono = np.array(buffer.data, dtype=np.uint8).reshape(self._h, self._w)
+            if buffer.is_incomplete:
+                self._device.requeue_buffer(buffer)
+                return False, None
+            # buffer.pdata is a ctypes POINTER(uint8_t). buffer.data slices it
+            # into a Python list of N ints before building the numpy array —
+            # for a 720x540 frame that's 388,800 Python objects, which takes
+            # ~15ms. ctypes.string_at does a direct memcpy instead (~0.3ms).
+            import ctypes
+            n = self._h * self._w
+            raw = ctypes.string_at(buffer.pdata, n)
             self._device.requeue_buffer(buffer)
+            mono = np.frombuffer(raw, dtype=np.uint8).reshape(self._h, self._w)
             bgr = cv2.cvtColor(mono, cv2.COLOR_GRAY2BGR)
             return True, bgr
         except Exception as e:
@@ -456,9 +557,15 @@ class LucidCapture:
     def release(self):
         try:
             self._device.stop_stream()
-            self._system.destroy_device()
+            self._arena.destroy_device(self._device)
         except Exception:
             pass
+        if getattr(self, '_timer_period_set', False):
+            try:
+                import ctypes
+                ctypes.windll.winmm.timeEndPeriod(1)
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -1321,6 +1428,9 @@ def main():
     ap.add_argument("--source", type=int, default=None, help="Override webcam source index")
     ap.add_argument("--server", type=str, default=None, help="Override WebSocket server URL")
     ap.add_argument("--net-id", type=str, default=None, help="Override net_id")
+    ap.add_argument("--log-level", type=str, default=None,
+                    choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                    help="Override log level from config")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -1330,6 +1440,8 @@ def main():
         cfg["server_url"] = args.server
     if args.net_id is not None:
         cfg["net_id"] = args.net_id
+    if args.log_level is not None:
+        cfg["log_level"] = args.log_level
 
     log = setup_logging(cfg["log_level"])
 

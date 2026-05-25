@@ -3,3 +3,18 @@ __pycache__/
 *.mp4
 *.avi
 *.mov
+
+# Python tooling
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Service logs (written by NSSM)
+logs/
+
+# Local test images / debug captures
+*.jpg
+*.jpeg
+*.png
+test_*

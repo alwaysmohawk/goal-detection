@@ -1,8 +1,8 @@
-# HHOF Goalie Simulator — Goal Detector Windows Service Installer
+# HHOF Goalie Simulator - Goal Detector Windows Service Installer
 
 $ErrorActionPreference = "Stop"
 
-# ── Self-elevate if not running as admin ─────────────────────────────
+# -- Self-elevate if not running as admin ---------------------------------
 
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host "Relaunching as Administrator..."
@@ -10,23 +10,23 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit
 }
 
-# ── Helpers ──────────────────────────────────────────────────────────
+# -- Helpers --------------------------------------------------------------
 
 function Write-Step { param($msg) Write-Host "`n>> $msg" -ForegroundColor Cyan }
 function Write-Ok   { param($msg) Write-Host "   OK: $msg" -ForegroundColor Green }
 function Write-Warn { param($msg) Write-Host "   WARN: $msg" -ForegroundColor Yellow }
 function Write-Fail { param($msg) Write-Host "   ERROR: $msg" -ForegroundColor Red; exit 1 }
 
-# ── Verify we're in the repo root ────────────────────────────────────
+# -- Verify we're in the repo root ----------------------------------------
 
 $RepoRoot = $PSScriptRoot
 if (-not (Test-Path "$RepoRoot\goal_detector.py")) {
     Write-Fail "Run this script from the goal-detection repo root"
 }
 
-# ── Prompts ──────────────────────────────────────────────────────────
+# -- Prompts --------------------------------------------------------------
 
-Write-Host "`nHHOF Goal Detector — Service Installer" -ForegroundColor Green
+Write-Host "`nHHOF Goal Detector - Service Installer" -ForegroundColor Green
 Write-Host "Press Enter to accept the default shown in brackets.`n"
 
 $ServerUrl = Read-Host "WebSocket server URL  [ws://localhost:8765]"
@@ -42,7 +42,7 @@ $UseGigE = Read-Host "Using Lucid GigE camera? (y/n)  [y]"
 if (-not $UseGigE) { $UseGigE = "y" }
 $UseGigE = $UseGigE.Trim().ToLower() -eq "y"
 
-# ── Install uv ───────────────────────────────────────────────────────
+# -- Install uv -----------------------------------------------------------
 
 Write-Step "Checking uv..."
 
@@ -58,20 +58,20 @@ if (-not $UvPath -or -not (Test-Path $UvPath)) {
 }
 
 if (-not (Test-Path $UvPath)) {
-    Write-Fail "uv installation failed — install manually from https://docs.astral.sh/uv"
+    Write-Fail "uv installation failed - install manually from https://docs.astral.sh/uv"
 }
 Write-Ok "uv at $UvPath"
 
-# ── Install Python dependencies ───────────────────────────────────────
+# -- Install Python dependencies ------------------------------------------
 
 Write-Step "Installing Python dependencies..."
 & $UvPath sync --project $RepoRoot
 if ($LASTEXITCODE -ne 0) { Write-Fail "uv sync failed" }
 Write-Ok "Core dependencies ready (numpy, opencv-python, websockets)"
 
-# ── Check Lucid Vision Arena SDK (native DLLs) ───────────────────────
+# -- Check Lucid Vision Arena SDK (native DLLs) ---------------------------
 # arena_api (Python) is installed by uv sync above. It wraps the Arena SDK
-# C++ DLLs via ctypes — those must be installed separately from Lucid's site.
+# C++ DLLs via ctypes - those must be installed separately from Lucid's site.
 
 if ($UseGigE) {
     Write-Step "Checking Arena SDK native DLLs..."
@@ -86,7 +86,7 @@ if ($UseGigE) {
         Write-Host "   (Press S to skip if you want to finish setup without the GigE camera)" -ForegroundColor Yellow
         $key = Read-Host "   [Enter / S]"
         if ($key.Trim().ToLower() -eq "s") {
-            Write-Warn "Skipping Arena SDK — GigE camera will not work until it is installed"
+            Write-Warn "Skipping Arena SDK - GigE camera will not work until it is installed"
             break
         }
     }
@@ -98,7 +98,7 @@ if ($UseGigE) {
     Write-Ok "Not required"
 }
 
-# ── Install NSSM ─────────────────────────────────────────────────────
+# -- Install NSSM ---------------------------------------------------------
 
 Write-Step "Checking NSSM..."
 
@@ -117,14 +117,18 @@ if (-not $NssmPath) {
 }
 Write-Ok "NSSM at $NssmPath"
 
-# ── Register service ──────────────────────────────────────────────────
+# -- Register service -----------------------------------------------------
 
 Write-Step "Registering service '$ServiceName'..."
 
-$existing = & $NssmPath status $ServiceName 2>&1
-if ($LASTEXITCODE -eq 0) {
-    Write-Warn "Service '$ServiceName' already exists — removing and re-registering"
-    & $NssmPath stop $ServiceName 2>&1 | Out-Null
+$ErrorActionPreference = "Continue"
+& $NssmPath status $ServiceName 2>$null | Out-Null
+$serviceExists = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = "Stop"
+
+if ($serviceExists) {
+    Write-Warn "Service '$ServiceName' already exists - removing and re-registering"
+    & $NssmPath stop $ServiceName 2>$null | Out-Null
     & $NssmPath remove $ServiceName confirm | Out-Null
 }
 
@@ -143,12 +147,12 @@ $UvArgs = "run --project `"$RepoRoot`" goal-detector --server $ServerUrl --net-i
 & $NssmPath set        $ServiceName AppStderrCreationDisposition 4
 & $NssmPath set        $ServiceName AppRotateFiles             1
 & $NssmPath set        $ServiceName AppRotateBytes             10485760
-& $NssmPath set        $ServiceName Description                "HHOF Goalie Simulator — goal detector ($NetId)"
+& $NssmPath set        $ServiceName Description                "HHOF Goalie Simulator - goal detector ($NetId)"
 & $NssmPath set        $ServiceName Start                      SERVICE_AUTO_START
 
 Write-Ok "Service registered"
 
-# ── Start service (only if calibrated) ───────────────────────────────
+# -- Start service (only if calibrated) -----------------------------------
 
 Write-Step "Checking calibration..."
 
@@ -164,7 +168,7 @@ if (Test-Path $ConfigPath) {
 }
 
 if ($Calibrated) {
-    Write-Ok "Calibration found — starting service"
+    Write-Ok "Calibration found - starting service"
     & $NssmPath start $ServiceName
     if ($LASTEXITCODE -ne 0) {
         Write-Warn "Service did not start cleanly. Check with: nssm status $ServiceName"
@@ -172,13 +176,13 @@ if ($Calibrated) {
         Write-Ok "Service started"
     }
 } else {
-    Write-Warn "No calibration data found — service registered but NOT started"
+    Write-Warn "No calibration data found - service registered but NOT started"
     Write-Warn "Run calibration first, then start the service manually:"
     Write-Warn "  uv run goal-detector --calibrate"
     Write-Warn "  nssm start $ServiceName"
 }
 
-# ── Summary ───────────────────────────────────────────────────────────
+# -- Summary --------------------------------------------------------------
 
 Write-Host "`n----------------------------------------" -ForegroundColor Green
 Write-Host " Install complete" -ForegroundColor Green
@@ -189,7 +193,7 @@ Write-Host " Server   : $ServerUrl"
 Write-Host " Logs     : $LogDir"
 if (-not $Calibrated) {
     Write-Host ""
-    Write-Host " NEXT STEP — calibrate before starting:" -ForegroundColor Yellow
+    Write-Host " NEXT STEP - calibrate before starting:" -ForegroundColor Yellow
     Write-Host "   uv run goal-detector --calibrate" -ForegroundColor Yellow
     Write-Host "   nssm start $ServiceName" -ForegroundColor Yellow
 }

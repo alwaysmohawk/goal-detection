@@ -38,6 +38,10 @@ if (-not $NetId) { $NetId = "net_1" }
 $ServiceName = Read-Host "Service name          [hhof-goal-detector]"
 if (-not $ServiceName) { $ServiceName = "hhof-goal-detector" }
 
+$UseGigE = Read-Host "Using Lucid GigE camera? (y/n)  [y]"
+if (-not $UseGigE) { $UseGigE = "y" }
+$UseGigE = $UseGigE.Trim().ToLower() -eq "y"
+
 # ── Install uv ───────────────────────────────────────────────────────
 
 Write-Step "Checking uv..."
@@ -65,31 +69,33 @@ Write-Step "Installing Python dependencies..."
 if ($LASTEXITCODE -ne 0) { Write-Fail "uv sync failed" }
 Write-Ok "Core dependencies ready (numpy, opencv-python, websockets)"
 
-# ── Install arena_api (Lucid Vision) ─────────────────────────────────
+# ── Check Lucid Vision Arena SDK (native DLLs) ───────────────────────
+# arena_api (Python) is installed by uv sync above. It wraps the Arena SDK
+# C++ DLLs via ctypes — those must be installed separately from Lucid's site.
 
-Write-Step "Checking arena_api (Lucid Vision GigE)..."
+if ($UseGigE) {
+    Write-Step "Checking Arena SDK native DLLs..."
 
-$ArenaApiInstalled = & $UvPath run --project $RepoRoot python -c "import arena_api" 2>&1
-if ($LASTEXITCODE -eq 0) {
-    Write-Ok "arena_api already installed"
-} else {
-    # Search for the wheel bundled with the Arena SDK
-    $SdkRoot = "C:\Program Files\Lucid Vision Labs\Arena SDK"
-    $Wheel = Get-ChildItem -Path $SdkRoot -Recurse -Filter "arena_api-*.whl" -ErrorAction SilentlyContinue | Select-Object -First 1
-
-    if ($Wheel) {
-        Write-Host "   Found wheel: $($Wheel.FullName)"
-        & $UvPath pip install --project $RepoRoot $Wheel.FullName
-        if ($LASTEXITCODE -eq 0) {
-            Write-Ok "arena_api installed from SDK wheel"
-        } else {
-            Write-Warn "arena_api wheel install failed — GigE camera will not work"
+    $ArenaDllDir = "C:\Program Files\Lucid Vision Labs\Arena SDK\x64Release"
+    while (-not (Test-Path "$ArenaDllDir\ArenaC_v140.dll")) {
+        Write-Warn "Arena SDK not found at '$ArenaDllDir'"
+        Write-Host "   Opening Lucid downloads page..." -ForegroundColor Cyan
+        Start-Process "https://thinklucid.com/downloads-hub/"
+        Write-Host ""
+        Write-Host "   Download and install the Arena SDK, then press Enter to continue." -ForegroundColor Yellow
+        Write-Host "   (Press S to skip if you want to finish setup without the GigE camera)" -ForegroundColor Yellow
+        $key = Read-Host "   [Enter / S]"
+        if ($key.Trim().ToLower() -eq "s") {
+            Write-Warn "Skipping Arena SDK — GigE camera will not work until it is installed"
+            break
         }
-    } else {
-        Write-Warn "arena_api wheel not found under '$SdkRoot'"
-        Write-Warn "GigE camera will not work. To fix, install the Arena SDK then re-run this script,"
-        Write-Warn "or run: pip install `"<SDK path>\python\arena_api-*.whl`""
     }
+    if (Test-Path "$ArenaDllDir\ArenaC_v140.dll") {
+        Write-Ok "Arena SDK DLLs found at $ArenaDllDir"
+    }
+} else {
+    Write-Step "Skipping Arena SDK check (USB camera mode)"
+    Write-Ok "Not required"
 }
 
 # ── Install NSSM ─────────────────────────────────────────────────────
@@ -142,15 +148,34 @@ $UvArgs = "run --project `"$RepoRoot`" goal-detector --server $ServerUrl --net-i
 
 Write-Ok "Service registered"
 
-# ── Start service ─────────────────────────────────────────────────────
+# ── Start service (only if calibrated) ───────────────────────────────
 
-Write-Step "Starting service..."
-& $NssmPath start $ServiceName
+Write-Step "Checking calibration..."
 
-if ($LASTEXITCODE -ne 0) {
-    Write-Warn "Service did not start cleanly. Check with: nssm status $ServiceName"
+$Calibrated = $false
+$ConfigPath = "$RepoRoot\config.json"
+if (Test-Path $ConfigPath) {
+    try {
+        $cfg = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+        if ($cfg.goal_line -and $cfg.net_roi -and $cfg.approach_roi) {
+            $Calibrated = $true
+        }
+    } catch {}
+}
+
+if ($Calibrated) {
+    Write-Ok "Calibration found — starting service"
+    & $NssmPath start $ServiceName
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "Service did not start cleanly. Check with: nssm status $ServiceName"
+    } else {
+        Write-Ok "Service started"
+    }
 } else {
-    Write-Ok "Service started"
+    Write-Warn "No calibration data found — service registered but NOT started"
+    Write-Warn "Run calibration first, then start the service manually:"
+    Write-Warn "  uv run goal-detector --calibrate"
+    Write-Warn "  nssm start $ServiceName"
 }
 
 # ── Summary ───────────────────────────────────────────────────────────
@@ -162,6 +187,12 @@ Write-Host " Service  : $ServiceName"
 Write-Host " Net ID   : $NetId"
 Write-Host " Server   : $ServerUrl"
 Write-Host " Logs     : $LogDir"
+if (-not $Calibrated) {
+    Write-Host ""
+    Write-Host " NEXT STEP — calibrate before starting:" -ForegroundColor Yellow
+    Write-Host "   uv run goal-detector --calibrate" -ForegroundColor Yellow
+    Write-Host "   nssm start $ServiceName" -ForegroundColor Yellow
+}
 Write-Host ""
 Write-Host " Useful commands:"
 Write-Host "   nssm status $ServiceName"

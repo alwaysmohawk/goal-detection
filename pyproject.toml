@@ -7,9 +7,7 @@ dependencies = [
     "numpy",
     "opencv-python",
     "websockets",
-    # arena_api is not on PyPI — install manually from the Lucid Vision wheel:
-    #   pip install "<Arena SDK install dir>\python\arena_api-*.whl"
-    # install.ps1 does this automatically if the SDK is found.
+    "arena_api",
 ]
 
 [project.scripts]

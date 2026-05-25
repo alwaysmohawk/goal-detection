@@ -180,9 +180,9 @@ if ($Calibrated) {
 
 # ── Summary ───────────────────────────────────────────────────────────
 
-Write-Host "`n────────────────────────────────────────" -ForegroundColor Green
+Write-Host "`n----------------------------------------" -ForegroundColor Green
 Write-Host " Install complete" -ForegroundColor Green
-Write-Host "────────────────────────────────────────" -ForegroundColor Green
+Write-Host "----------------------------------------" -ForegroundColor Green
 Write-Host " Service  : $ServiceName"
 Write-Host " Net ID   : $NetId"
 Write-Host " Server   : $ServerUrl"
@@ -200,4 +200,4 @@ Write-Host "   nssm restart $ServiceName"
 Write-Host "   nssm stop $ServiceName"
 Write-Host "   nssm remove $ServiceName confirm"
 Write-Host "   Get-Content `"$LogDir\stdout.log`" -Tail 50"
-Write-Host "────────────────────────────────────────`n" -ForegroundColor Green
+Write-Host "----------------------------------------`n" -ForegroundColor Green

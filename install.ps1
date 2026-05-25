@@ -109,7 +109,7 @@ if ($UseGigE) {
         # Try pip install directly first - works if Lucid's SDK installer
         # registered it, or if it becomes available on PyPI in the future.
         $ErrorActionPreference = "Continue"
-        & $UvPath pip install --project $RepoRoot arena_api 2>$null | Out-Null
+        & $UvPath pip install --python "$RepoRoot\.venv\Scripts\python.exe" arena_api 2>$null | Out-Null
         $arenaApiOk = ($LASTEXITCODE -eq 0)
         $ErrorActionPreference = "Stop"
 
@@ -131,7 +131,7 @@ if ($UseGigE) {
 
             if ($Wheel) {
                 Write-Host "   Found wheel: $($Wheel.Name)"
-                & $UvPath pip install --project $RepoRoot $Wheel.FullName
+                & $UvPath pip install --python "$RepoRoot\.venv\Scripts\python.exe" $Wheel.FullName
                 if ($LASTEXITCODE -ne 0) { Write-Fail "arena_api install failed" }
                 Write-Ok "arena_api installed from $($Wheel.Name)"
             } else {
@@ -149,7 +149,7 @@ if ($UseGigE) {
                         if ($Wheel) { break }
                     }
                     if ($Wheel) {
-                        & $UvPath pip install --project $RepoRoot $Wheel.FullName
+                        & $UvPath pip install --python "$RepoRoot\.venv\Scripts\python.exe" $Wheel.FullName
                         if ($LASTEXITCODE -ne 0) { Write-Fail "arena_api install failed" }
                         Write-Ok "arena_api installed from $($Wheel.Name)"
                     } else {

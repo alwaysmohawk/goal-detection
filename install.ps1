@@ -79,12 +79,18 @@ if ($UseGigE) {
 
     $ArenaDllDir = "C:\Program Files\Lucid Vision Labs\Arena SDK\x64Release"
     while (-not (Test-Path "$ArenaDllDir\ArenaC_v140.dll")) {
-        Write-Warn "Arena SDK not found at '$ArenaDllDir'"
-        Write-Host "   Opening Lucid downloads page..." -ForegroundColor Cyan
+        Write-Warn "Arena SDK (C++ runtime) not found."
+        Write-Host ""
+        Write-Host "   You need to install TWO things from Lucid's downloads page:" -ForegroundColor Yellow
+        Write-Host "     1. Arena SDK  (the main C++ installer, e.g. ArenaSDK_Windows.exe)" -ForegroundColor Yellow
+        Write-Host "     2. arena_api  (the Python wheel, e.g. arena_api-X.Y.Z-py3-none-any.whl)" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "   Opening Lucid downloads page now..." -ForegroundColor Cyan
         Start-Process "https://thinklucid.com/downloads-hub/"
         Write-Host ""
-        Write-Host "   Download and install the Arena SDK, then press Enter to continue." -ForegroundColor Yellow
-        Write-Host "   (Press S to skip GigE setup entirely)" -ForegroundColor Yellow
+        Write-Host "   Download and run the Arena SDK installer, then press Enter to continue." -ForegroundColor Yellow
+        Write-Host "   (Keep the arena_api .whl file handy -- we will ask for it next.)" -ForegroundColor Yellow
+        Write-Host "   Press S to skip GigE setup entirely." -ForegroundColor Yellow
         $key = Read-Host "   [Enter / S]"
         if ($key.Trim().ToLower() -eq "s") {
             Write-Warn "Skipping Arena SDK - GigE camera will not work until it is installed"
@@ -122,10 +128,13 @@ if ($UseGigE) {
             }
 
             while (-not $Wheel) {
-                Write-Warn "arena_api wheel not found in common locations."
-                Write-Host "   Download the Arena Python SDK wheel from Lucid's downloads page." -ForegroundColor Yellow
-                Write-Host "   Then paste the full path to the .whl file below, or press S to skip." -ForegroundColor Yellow
-                $input = Read-Host "   Path to arena_api*.whl [S to skip]"
+                Write-Warn "arena_api wheel not found automatically."
+                Write-Host ""
+                Write-Host "   From the Lucid downloads page, download the arena_api Python wheel" -ForegroundColor Yellow
+                Write-Host "   (filename looks like: arena_api-X.Y.Z-py3-none-any.whl)" -ForegroundColor Yellow
+                Write-Host "   Then paste the full path to that file below." -ForegroundColor Yellow
+                Write-Host ""
+                $input = Read-Host "   Path to arena_api wheel [S to skip]"
                 if ($input.Trim().ToLower() -eq "s") { break }
                 if (Test-Path $input.Trim()) {
                     $Wheel = Get-Item $input.Trim()

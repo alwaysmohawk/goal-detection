@@ -247,7 +247,7 @@ if ($Calibrated) {
 } else {
     Write-Warn "No calibration data found - service registered but NOT started"
     Write-Warn "Run calibration first, then start the service manually:"
-    Write-Warn "  uv run goal-detector --calibrate"
+    Write-Warn "  uv run --project `"$RepoRoot`" python `"$RepoRoot\goal_detector.py`" --calibrate"
     Write-Warn "  nssm start $ServiceName"
 }
 
@@ -263,7 +263,7 @@ Write-Host " Logs     : $LogDir"
 if (-not $Calibrated) {
     Write-Host ""
     Write-Host " NEXT STEP - calibrate before starting:" -ForegroundColor Yellow
-    Write-Host "   uv run goal-detector --calibrate" -ForegroundColor Yellow
+    Write-Host "   uv run --project `"$RepoRoot`" python `"$RepoRoot\goal_detector.py`" --calibrate" -ForegroundColor Yellow
     Write-Host "   nssm start $ServiceName" -ForegroundColor Yellow
 }
 Write-Host ""

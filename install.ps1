@@ -102,19 +102,21 @@ if ($UseGigE) {
         Write-Ok "Arena SDK DLLs found at $ArenaDllDir"
     }
 
-    # -- arena_api Python wheel -------------------------------------------
+    # -- arena_api Python package -----------------------------------------
     if ($UseGigE) {
-        Write-Step "Checking arena_api Python package..."
+        Write-Step "Installing arena_api Python package..."
 
+        # Try pip install directly first - works if Lucid's SDK installer
+        # registered it, or if it becomes available on PyPI in the future.
         $ErrorActionPreference = "Continue"
-        & $UvPath run --project $RepoRoot python -c "import arena_api" 2>$null | Out-Null
+        & $UvPath pip install --project $RepoRoot arena_api 2>$null | Out-Null
         $arenaApiOk = ($LASTEXITCODE -eq 0)
         $ErrorActionPreference = "Stop"
 
         if ($arenaApiOk) {
-            Write-Ok "arena_api already installed"
+            Write-Ok "arena_api installed"
         } else {
-            # Search common locations for the Lucid-distributed wheel
+            # pip install failed - search for a wheel the user may have downloaded
             $SearchDirs = @(
                 "C:\Program Files\Lucid Vision Labs\Arena SDK",
                 "$env:USERPROFILE\Downloads",
@@ -127,29 +129,33 @@ if ($UseGigE) {
                 if ($Wheel) { break }
             }
 
-            while (-not $Wheel) {
-                Write-Warn "arena_api wheel not found automatically."
-                Write-Host ""
-                Write-Host "   From the Lucid downloads page, download the arena_api Python wheel" -ForegroundColor Yellow
-                Write-Host "   (filename looks like: arena_api-X.Y.Z-py3-none-any.whl)" -ForegroundColor Yellow
-                Write-Host "   Then paste the full path to that file below." -ForegroundColor Yellow
-                Write-Host ""
-                $input = Read-Host "   Path to arena_api wheel [S to skip]"
-                if ($input.Trim().ToLower() -eq "s") { break }
-                if (Test-Path $input.Trim()) {
-                    $Wheel = Get-Item $input.Trim()
-                } else {
-                    Write-Warn "File not found: $($input.Trim())"
-                }
-            }
-
             if ($Wheel) {
-                Write-Host "   Installing $($Wheel.Name)..."
+                Write-Host "   Found wheel: $($Wheel.Name)"
                 & $UvPath pip install --project $RepoRoot $Wheel.FullName
-                if ($LASTEXITCODE -ne 0) { Write-Fail "arena_api wheel install failed" }
-                Write-Ok "arena_api installed"
+                if ($LASTEXITCODE -ne 0) { Write-Fail "arena_api install failed" }
+                Write-Ok "arena_api installed from $($Wheel.Name)"
             } else {
-                Write-Warn "Skipping arena_api - GigE camera will not work until it is installed"
+                Write-Warn "Could not install arena_api automatically."
+                Write-Host ""
+                Write-Host "   On the Lucid downloads page, look for a Python SDK or ArenaPy download." -ForegroundColor Yellow
+                Write-Host "   Download it, then re-run this installer." -ForegroundColor Yellow
+                Write-Host "   Or press S to skip and set up the GigE camera manually later." -ForegroundColor Yellow
+                Write-Host ""
+                $key = Read-Host "   [Enter to retry / S to skip]"
+                if ($key.Trim().ToLower() -ne "s") {
+                    # Re-search after user has had time to download
+                    foreach ($dir in $SearchDirs) {
+                        $Wheel = Get-ChildItem -Path $dir -Filter "arena_api*.whl" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if ($Wheel) { break }
+                    }
+                    if ($Wheel) {
+                        & $UvPath pip install --project $RepoRoot $Wheel.FullName
+                        if ($LASTEXITCODE -ne 0) { Write-Fail "arena_api install failed" }
+                        Write-Ok "arena_api installed from $($Wheel.Name)"
+                    } else {
+                        Write-Warn "Still not found - skipping. Re-run installer after downloading arena_api."
+                    }
+                }
             }
         }
     }

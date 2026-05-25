@@ -15,7 +15,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 function Write-Step { param($msg) Write-Host "`n>> $msg" -ForegroundColor Cyan }
 function Write-Ok   { param($msg) Write-Host "   OK: $msg" -ForegroundColor Green }
 function Write-Warn { param($msg) Write-Host "   WARN: $msg" -ForegroundColor Yellow }
-function Write-Fail { param($msg) Write-Host "   ERROR: $msg" -ForegroundColor Red; exit 1 }
+function Write-Fail { param($msg) Write-Host "   ERROR: $msg" -ForegroundColor Red; Read-Host "`nPress Enter to exit"; exit 1 }
 
 # -- Verify we're in the repo root ----------------------------------------
 

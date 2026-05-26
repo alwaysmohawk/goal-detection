@@ -316,6 +316,11 @@ the goal/no_goal response so events can be correlated.
 
 ## Production handoff
 
+> **TODO:** Decide where the Node WebSocket server will run in production
+> (dedicated server, same machine as the game PC, cloud VM, etc.) and update
+> `server_url` in each detector's `config.json` accordingly. Until this is
+> decided, the dev `server.js` can be used for end-to-end testing.
+
 When the real Node app is ready:
 
 1. Edit `config.json` and set `server_url` to the real Node endpoint.

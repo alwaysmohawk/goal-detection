@@ -195,7 +195,7 @@ Valid values:
 
 | Key | Default | Description |
 |---|---|---|
-| `armed_window_seconds` | `1.0` | After receiving `shot_incoming`, look for goals for this long. Emits `no_goal` if nothing scored before window expires. |
+| `armed_window_seconds` | `2.0` | After receiving `shot_incoming`, look for goals for this long. Emits `no_goal` if nothing scored before window expires. |
 | `goal_cooldown_seconds` | `0.5` | Minimum gap between consecutive goal events. Belt-and-suspenders against double-counting. |
 | `always_on_default` | `false` | Mode at startup. `false` = armed (waits for `shot_incoming`); `true` = always-on (continuous detection). Can be flipped at runtime via WebSocket. |
 | `log_level` | `"INFO"` | Standard Python log levels: `"DEBUG"`, `"INFO"`, `"WARNING"`, `"ERROR"`. |

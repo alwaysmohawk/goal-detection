@@ -116,7 +116,7 @@ DEFAULT_CONFIG = {
     "tracker_max_age_s": 0.4,          # how long a track survives without a hit
 
     # ---- Goal logic ----
-    "armed_window_seconds": 1.0,       # how long after shot_incoming to look for goal
+    "armed_window_seconds": 2.0,       # how long after shot_incoming to look for goal
     "goal_cooldown_seconds": 0.5,      # min gap between goal events
     "always_on_default": False,        # start in armed-mode by default
     "log_level": "INFO",

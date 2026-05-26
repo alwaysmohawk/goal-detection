@@ -274,3 +274,5 @@ Write-Host "   nssm stop $ServiceName"
 Write-Host "   nssm remove $ServiceName confirm"
 Write-Host "   Get-Content `"$LogDir\stdout.log`" -Tail 50"
 Write-Host "----------------------------------------`n" -ForegroundColor Green
+
+Read-Host "Press Enter to exit"

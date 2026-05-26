@@ -458,8 +458,16 @@ class LucidCapture:
         nodemap['Width'].value = cfg['frame_width']
         nodemap['Height'].value = cfg['frame_height']
 
-        # Run at maximum hardware framerate (no explicit cap).
-        nodemap['AcquisitionFrameRateEnable'].value = False
+        fps_limit = cfg.get('target_fps', 0)
+        if fps_limit and fps_limit > 0:
+            try:
+                nodemap['AcquisitionFrameRateEnable'].value = True
+                nodemap['AcquisitionFrameRate'].value = float(fps_limit)
+            except Exception as e:
+                log.warning(f"Could not set AcquisitionFrameRate to {fps_limit}: {e}; running at max fps")
+                nodemap['AcquisitionFrameRateEnable'].value = False
+        else:
+            nodemap['AcquisitionFrameRateEnable'].value = False
 
         if cfg.get('auto_exposure', True):
             nodemap['ExposureAuto'].value = 'Continuous'
@@ -1014,6 +1022,8 @@ def run_detector(cfg: dict, ws: WSClient, debug: bool, log: logging.Logger,
     frames_since = 0
     fps_smoothed = 0.0
     last_heartbeat = 0.0
+    tracks = []
+    consecutive_fails = 0
 
     log.info(f"Detector running. Mode: {'always-on' if state.always_on else 'armed-only'}. "
              f"Press 'a' to toggle armed/always-on, 'd' to toggle debug, 'q' to quit.")
@@ -1029,11 +1039,49 @@ def run_detector(cfg: dict, ws: WSClient, debug: bool, log: logging.Logger,
             t_a = time.perf_counter()
             ok, frame = cap.read()
             t_b = time.perf_counter()
-            if not ok:
-                log.warning("Camera read failed; retrying...")
-                time.sleep(0.05)
-                continue
             now = time.time()
+
+            if not ok:
+                consecutive_fails += 1
+                log.warning(f"Camera read failed (attempt {consecutive_fails}); retrying...")
+                # Keep sending heartbeats so the browser doesn't show stale
+                if now - last_heartbeat >= 1.0:
+                    last_heartbeat = now
+                    _send({
+                        "type": "heartbeat",
+                        "fps": 0.0,
+                        "mode": "always_on" if state.always_on else "armed",
+                        "armed": False,
+                        "tracks": 0,
+                    })
+                if consecutive_fails >= 10:
+                    log.warning("10 consecutive failures; reinitializing camera...")
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
+                    time.sleep(2.0)
+                    try:
+                        cap = open_capture(cfg, log)
+                        bg = cv2.createBackgroundSubtractorMOG2(
+                            history=cfg["bg_history"],
+                            varThreshold=cfg["bg_var_threshold"],
+                            detectShadows=cfg["detect_shadows"],
+                        )
+                        tracker = SimpleTracker(
+                            max_dist_px=cfg["tracker_max_dist_px"],
+                            max_age_s=cfg["tracker_max_age_s"],
+                        )
+                        tracks = []
+                        consecutive_fails = 0
+                        log.info("Camera reinitialized successfully")
+                    except Exception as e:
+                        log.error(f"Camera reinitialization failed: {e}; will retry")
+                else:
+                    time.sleep(0.05)
+                continue
+
+            consecutive_fails = 0
 
             # ---- Process inbound WS messages ----
             try:

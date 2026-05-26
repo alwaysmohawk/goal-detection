@@ -55,6 +55,7 @@ CONFIG_PATH = Path(__file__).with_name("config.json")
 DEFAULT_CONFIG = {
     "net_id": "net_1",                 # which net this Pi is for
     "server_url": "ws://localhost:8765",
+    "admin_server_url": "ws://localhost:8766",  # local admin panel WS; set to null to disable
     "source": 0,                       # webcam index, or path to video file for testing
     "frame_width": 1280,
     "frame_height": 720,
@@ -875,10 +876,16 @@ class DetectorState:
     pending_shot_id: Optional[str] = None  # opaque id from the Node 'shot_incoming'
 
 
-def run_detector(cfg: dict, ws: WSClient, debug: bool, log: logging.Logger) -> None:
+def run_detector(cfg: dict, ws: WSClient, debug: bool, log: logging.Logger,
+                 admin_ws: Optional["WSClient"] = None) -> None:
     if cfg["goal_line"] is None or cfg["net_roi"] is None:
         log.error("No calibration found. Run with --calibrate first.")
         sys.exit(3)
+
+    def _send(msg: dict) -> None:
+        ws.send(msg)
+        if admin_ws is not None:
+            admin_ws.send(dict(msg))
 
     line_a = tuple(cfg["goal_line"][0])
     line_b = tuple(cfg["goal_line"][1])
@@ -1173,7 +1180,7 @@ def run_detector(cfg: dict, ws: WSClient, debug: bool, log: logging.Logger) -> N
                         speed_px_s = (vx * vx + vy * vy) ** 0.5
                         log.info(f"GOAL track={tr.id} speed_px_s={speed_px_s:.0f} "
                                  f"shot_id={state.pending_shot_id}")
-                        ws.send({
+                        _send({
                             "type": "goal",
                             "track_id": tr.id,
                             "speed_px_s": round(speed_px_s, 1),
@@ -1191,7 +1198,7 @@ def run_detector(cfg: dict, ws: WSClient, debug: bool, log: logging.Logger) -> N
                     and now >= state.armed_until
                     and state.armed_until != 0.0):
                 log.info(f"NO_GOAL shot_id={state.pending_shot_id} (armed window expired)")
-                ws.send({
+                _send({
                     "type": "no_goal",
                     "shot_id": state.pending_shot_id,
                     "reason": "window_expired",
@@ -1221,7 +1228,7 @@ def run_detector(cfg: dict, ws: WSClient, debug: bool, log: logging.Logger) -> N
                 t_frames = 0
             if now - last_heartbeat >= 1.0:
                 last_heartbeat = now
-                ws.send({
+                _send({
                     "type": "heartbeat",
                     "fps": round(fps_smoothed, 1),
                     "mode": "always_on" if state.always_on else "armed",
@@ -1452,17 +1459,27 @@ def main():
     ws = WSClient(cfg["server_url"], cfg["net_id"], log)
     ws.start()
 
+    admin_ws = None
+    admin_url = cfg.get("admin_server_url")
+    if admin_url:
+        admin_ws = WSClient(admin_url, cfg["net_id"], log)
+        admin_ws.start()
+
     def shutdown(signum, frame):
         log.info("Shutting down...")
         ws.stop()
+        if admin_ws is not None:
+            admin_ws.stop()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, shutdown)
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, shutdown)
 
-    run_detector(cfg, ws, args.debug, log)
+    run_detector(cfg, ws, args.debug, log, admin_ws)
     ws.stop()
+    if admin_ws is not None:
+        admin_ws.stop()
 
 
 if __name__ == "__main__":

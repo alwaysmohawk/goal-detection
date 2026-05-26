@@ -10,6 +10,9 @@ dist/
 build/
 *.egg-info/
 
+# Node
+node_modules/
+
 # Service logs (written by NSSM)
 logs/
 

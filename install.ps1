@@ -42,6 +42,9 @@ $UseGigE = Read-Host "Using Lucid GigE camera? (y/n)  [y]"
 if (-not $UseGigE) { $UseGigE = "y" }
 $UseGigE = $UseGigE.Trim().ToLower() -eq "y"
 
+$AdminServiceName = Read-Host "Admin service name    [hhof-admin]"
+if (-not $AdminServiceName) { $AdminServiceName = "hhof-admin" }
+
 # -- Install uv -----------------------------------------------------------
 
 Write-Step "Checking uv..."
@@ -183,6 +186,34 @@ if (-not $NssmPath) {
 }
 Write-Ok "NSSM at $NssmPath"
 
+# -- Install Node.js ------------------------------------------------------
+
+Write-Step "Checking Node.js..."
+
+$NodePath = (Get-Command node -ErrorAction SilentlyContinue).Source
+
+if (-not $NodePath) {
+    Write-Host "   Installing Node.js via winget..."
+    winget install OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements
+
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $NodePath = (Get-Command node -ErrorAction SilentlyContinue).Source
+}
+
+if (-not $NodePath) {
+    Write-Fail "Node.js not found after install. Restart this terminal and re-run install.ps1"
+}
+Write-Ok "Node.js at $NodePath"
+
+# -- Install Node dependencies ---------------------------------------------
+
+Write-Step "Installing Node dependencies..."
+$NpmPath = (Get-Command npm -ErrorAction SilentlyContinue).Source
+if (-not $NpmPath) { Write-Fail "npm not found. Ensure Node.js installed correctly." }
+& $NpmPath install --prefix "$RepoRoot" 2>$null | Out-Null
+if ($LASTEXITCODE -ne 0) { Write-Fail "npm install failed" }
+Write-Ok "Node dependencies ready (ws)"
+
 # -- Register service -----------------------------------------------------
 
 Write-Step "Registering service '$ServiceName'..."
@@ -219,9 +250,51 @@ $UvArgs = "run --project `"$RepoRoot`" python `"$RepoRoot\goal_detector.py`" --s
 & $NssmPath set        $ServiceName Description                "HHOF Goalie Simulator - goal detector ($NetId)"
 & $NssmPath set        $ServiceName Start                      SERVICE_AUTO_START
 
-Write-Ok "Service registered"
+Write-Ok "Detector service registered"
 
-# -- Start service (only if calibrated) -----------------------------------
+# -- Register admin service -----------------------------------------------
+
+Write-Step "Registering admin service '$AdminServiceName'..."
+
+$ErrorActionPreference = "Continue"
+& $NssmPath status $AdminServiceName 2>$null | Out-Null
+$adminExists = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = "Stop"
+
+if ($adminExists) {
+    Write-Warn "Admin service '$AdminServiceName' already exists - removing and re-registering"
+    $ErrorActionPreference = "Continue"
+    & $NssmPath stop   $AdminServiceName 2>$null | Out-Null
+    & $NssmPath remove $AdminServiceName confirm 2>$null | Out-Null
+    $ErrorActionPreference = "Stop"
+    Start-Sleep -Seconds 2
+}
+
+& $NssmPath install    $AdminServiceName $NodePath "$RepoRoot\admin_server.js"
+& $NssmPath set        $AdminServiceName AppDirectory               $RepoRoot
+& $NssmPath set        $AdminServiceName AppExit                    Default Restart
+& $NssmPath set        $AdminServiceName AppRestartDelay            3000
+& $NssmPath set        $AdminServiceName AppStdout                  "$LogDir\admin-stdout.log"
+& $NssmPath set        $AdminServiceName AppStderr                  "$LogDir\admin-stderr.log"
+& $NssmPath set        $AdminServiceName AppStdoutCreationDisposition 4
+& $NssmPath set        $AdminServiceName AppStderrCreationDisposition 4
+& $NssmPath set        $AdminServiceName AppRotateFiles             1
+& $NssmPath set        $AdminServiceName AppRotateBytes             10485760
+& $NssmPath set        $AdminServiceName AppEnvironmentExtra        "GOAL_DETECTOR_SERVICE_NAME=$ServiceName" "UV_PATH=$UvPath"
+& $NssmPath set        $AdminServiceName Description                "HHOF Goalie Simulator - admin panel"
+& $NssmPath set        $AdminServiceName Start                      SERVICE_AUTO_START
+
+Write-Ok "Admin service registered"
+
+Write-Step "Starting admin service..."
+& $NssmPath start $AdminServiceName
+if ($LASTEXITCODE -ne 0) {
+    Write-Warn "Admin service did not start cleanly. Check: nssm status $AdminServiceName"
+} else {
+    Write-Ok "Admin panel running at http://localhost:8080"
+}
+
+# -- Start detector service (only if calibrated) --------------------------
 
 Write-Step "Checking calibration..."
 
@@ -256,13 +329,16 @@ if ($Calibrated) {
 Write-Host "`n----------------------------------------" -ForegroundColor Green
 Write-Host " Install complete" -ForegroundColor Green
 Write-Host "----------------------------------------" -ForegroundColor Green
-Write-Host " Service  : $ServiceName"
+Write-Host " Detector : $ServiceName"
+Write-Host " Admin    : $AdminServiceName  ->  http://localhost:8080"
 Write-Host " Net ID   : $NetId"
 Write-Host " Server   : $ServerUrl"
 Write-Host " Logs     : $LogDir"
 if (-not $Calibrated) {
     Write-Host ""
-    Write-Host " NEXT STEP - calibrate before starting:" -ForegroundColor Yellow
+    Write-Host " NEXT STEP - calibrate before starting detector:" -ForegroundColor Yellow
+    Write-Host "   Open http://localhost:8080 and click 'Run calibration'" -ForegroundColor Yellow
+    Write-Host "   OR run manually:" -ForegroundColor Yellow
     Write-Host "   uv run --project `"$RepoRoot`" python `"$RepoRoot\goal_detector.py`" --calibrate" -ForegroundColor Yellow
     Write-Host "   nssm start $ServiceName" -ForegroundColor Yellow
 }
@@ -272,7 +348,9 @@ Write-Host "   nssm status $ServiceName"
 Write-Host "   nssm restart $ServiceName"
 Write-Host "   nssm stop $ServiceName"
 Write-Host "   nssm remove $ServiceName confirm"
+Write-Host "   nssm status $AdminServiceName"
 Write-Host "   Get-Content `"$LogDir\stdout.log`" -Tail 50"
+Write-Host "   Get-Content `"$LogDir\admin-stdout.log`" -Tail 50"
 Write-Host "----------------------------------------`n" -ForegroundColor Green
 
 Read-Host "Press Enter to exit"

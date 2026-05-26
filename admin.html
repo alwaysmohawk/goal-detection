@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HHOF goal detector — admin</title>
+<style>
+  :root {
+    --bg: #0e1014;
+    --panel: #161a21;
+    --panel-2: #1d222b;
+    --line: #262d38;
+    --text: #d8dde6;
+    --muted: #7d8694;
+    --accent: #4ec9b0;
+    --warn: #e8c468;
+    --danger: #e85a5a;
+    --goal: #2ecc71;
+    --mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
+  }
+
+  header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center;
+    position: sticky; top: 0; background: var(--bg); z-index: 10;
+  }
+  header h1 {
+    font-size: 14px; font-weight: 600; margin: 0;
+    letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted);
+  }
+  header h1 strong { color: var(--text); }
+  .header-right { display: flex; align-items: center; gap: 16px; }
+
+  .ws-status {
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+  }
+  .ws-status .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--danger); margin-right: 6px; vertical-align: middle;
+  }
+  .ws-status.connected .dot { background: var(--accent); }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 420px;
+    gap: 0;
+    min-height: calc(100vh - 50px);
+  }
+  @media (max-width: 960px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+
+  /* Left column: status + log */
+  .col-left {
+    border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; gap: 0;
+  }
+
+  /* Right column: actions + config */
+  .col-right {
+    overflow-y: auto;
+    padding: 20px;
+    display: flex; flex-direction: column; gap: 20px;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 16px;
+  }
+  .panel h2 {
+    font-size: 11px; font-weight: 600; margin: 0 0 12px;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+  }
+
+  /* Status strip */
+  .status-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    border-bottom: 1px solid var(--line);
+  }
+  .stat {
+    padding: 16px 20px;
+    border-right: 1px solid var(--line);
+  }
+  .stat:last-child { border-right: 0; }
+  .stat-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); margin-bottom: 6px;
+  }
+  .stat-value {
+    font-family: var(--mono); font-size: 22px; font-weight: 700;
+    color: var(--text);
+  }
+  .stat-value.good { color: var(--accent); }
+  .stat-value.warn { color: var(--warn); }
+  .stat-value.bad  { color: var(--danger); }
+
+  /* Event log */
+  .log-area {
+    flex: 1; padding: 16px 20px;
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .log-area h2 {
+    font-size: 11px; font-weight: 600; margin: 0 0 10px;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+  }
+  .log-list {
+    flex: 1; overflow-y: auto;
+    font-family: var(--mono); font-size: 12px;
+    border-top: 1px solid var(--line); padding-top: 8px;
+    max-height: calc(100vh - 280px);
+  }
+  .log-entry {
+    display: grid; grid-template-columns: 78px 110px 1fr; gap: 10px;
+    padding: 4px 0; color: var(--text);
+  }
+  .log-entry.goal         { color: var(--goal); }
+  .log-entry.no_goal      { color: var(--danger); }
+  .log-entry.heartbeat    { color: var(--muted); }
+  .log-entry.admin        { color: var(--accent); }
+  .log-entry .t    { color: var(--muted); }
+  .log-entry .type { text-transform: uppercase; font-weight: 600; font-size: 10px; padding-top: 1px; }
+  .log-entry .body { white-space: pre-wrap; word-break: break-all; }
+
+  /* Action buttons */
+  .actions { display: flex; flex-direction: column; gap: 10px; }
+
+  button.action {
+    width: 100%; padding: 12px;
+    background: var(--accent); color: #0e1014;
+    border: 0; border-radius: 4px; font-family: inherit; font-size: 13px;
+    font-weight: 600; cursor: pointer; transition: opacity 0.15s;
+  }
+  button.action:hover { opacity: 0.85; }
+  button.action:active { transform: translateY(1px); }
+  button.action:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+  button.action.secondary {
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line);
+  }
+  button.action.danger {
+    background: transparent; color: var(--danger);
+    border: 1px solid var(--danger);
+  }
+  button.action.danger:hover { background: var(--danger); color: #0e1014; }
+
+  /* Toast banner */
+  #toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 6px; padding: 10px 20px;
+    font-family: var(--mono); font-size: 12px; color: var(--accent);
+    opacity: 0; transition: opacity 0.2s; pointer-events: none;
+    white-space: nowrap; z-index: 100;
+  }
+  #toast.show { opacity: 1; }
+  #toast.error { color: var(--danger); border-color: var(--danger); }
+
+  /* Config editor */
+  .config-section + .config-section { margin-top: 20px; }
+  .config-section-title {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted);
+    margin-bottom: 10px; padding-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+  }
+  .config-row {
+    display: grid; grid-template-columns: 1fr auto;
+    gap: 8px; align-items: center; margin-bottom: 10px;
+  }
+  .config-row label {
+    font-size: 12px; color: var(--text);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .config-row label .restart-badge {
+    font-size: 9px; color: var(--warn); text-transform: uppercase;
+    letter-spacing: 0.06em; opacity: 0.7;
+  }
+  .config-row input[type="text"],
+  .config-row input[type="number"],
+  .config-row select {
+    width: 140px; padding: 6px 8px;
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 4px; color: var(--text);
+    font-family: var(--mono); font-size: 12px;
+  }
+  .config-row input:focus,
+  .config-row select:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  .config-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+  .config-row.readonly label { color: var(--muted); }
+  .config-row.readonly .ro-value {
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    text-align: right;
+  }
+
+  .config-save-bar {
+    display: flex; gap: 8px; margin-top: 16px;
+  }
+  .config-save-bar button { flex: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>HHOF goalie sim · <strong>admin</strong></h1>
+  <div class="header-right">
+    <div id="detectorStatus" class="ws-status"><span class="dot"></span><span class="label">detector disconnected</span></div>
+    <div id="wsStatus" class="ws-status"><span class="dot"></span><span class="label">connecting…</span></div>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- Left: live status + log -->
+  <div class="col-left">
+
+    <div class="status-strip">
+      <div class="stat">
+        <div class="stat-label">FPS</div>
+        <div class="stat-value" id="statFps">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Mode</div>
+        <div class="stat-value" id="statMode">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Armed</div>
+        <div class="stat-value" id="statArmed">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Tracks</div>
+        <div class="stat-value" id="statTracks">—</div>
+      </div>
+    </div>
+
+    <div class="log-area">
+      <h2>Event log</h2>
+      <div class="log-list" id="logList"></div>
+    </div>
+
+  </div>
+
+  <!-- Right: actions + config -->
+  <div class="col-right">
+
+    <div class="panel">
+      <h2>Service</h2>
+      <div class="actions">
+        <button class="action" id="btnRestart">Restart detector service</button>
+        <button class="action secondary" id="btnCalibrate">Run calibration</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Config <span style="font-weight:400; color: var(--muted); font-size:10px; text-transform:none; letter-spacing:0;">(saved to config.json)</span></h2>
+      <div id="configForm"></div>
+      <div class="config-save-bar">
+        <button class="action secondary" id="btnReload">Reload</button>
+        <button class="action" id="btnSave">Save config</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(() => {
+"use strict";
+
+// ---------------------------------------------------------------------------
+// Config schema
+// ---------------------------------------------------------------------------
+
+const RESTART = true;
+const LIVE    = false;
+
+// [key, label, type, options?, requiresRestart]
+// types: "text" | "number" | "boolean" | "select" | "readonly"
+const CONFIG_SCHEMA = [
+  { section: "Connection" },
+  { key: "net_id",           label: "Net ID",              type: "text",    restart: RESTART },
+  { key: "server_url",       label: "Server URL",          type: "text",    restart: RESTART },
+  { key: "admin_server_url", label: "Admin server URL",    type: "text",    restart: RESTART },
+
+  { section: "Camera" },
+  { key: "source",           label: "Source index",        type: "number",  restart: RESTART },
+  { key: "frame_width",      label: "Frame width",         type: "number",  restart: RESTART },
+  { key: "frame_height",     label: "Frame height",        type: "number",  restart: RESTART },
+  { key: "target_fps",       label: "Target FPS",          type: "number",  restart: RESTART },
+  { key: "capture_backend",  label: "Capture backend",     type: "select",  restart: RESTART,
+    options: ["auto","dshow","msmf","v4l2","any","lucid"] },
+  { key: "auto_exposure",    label: "Auto exposure",       type: "boolean", restart: RESTART },
+  { key: "manual_exposure",  label: "Manual exposure (log2 s)", type: "number", restart: RESTART },
+  { key: "lucid_exposure_us",label: "Lucid exposure (µs)", type: "number",  restart: RESTART },
+  { key: "lucid_sdk_path",   label: "Lucid SDK path",      type: "text",    restart: RESTART },
+
+  { section: "Detection" },
+  { key: "detection_method", label: "Detection method",    type: "select",  restart: RESTART,
+    options: ["motion","dark","combined"] },
+  { key: "bg_history",       label: "BG history",          type: "number",  restart: LIVE },
+  { key: "bg_var_threshold", label: "BG var threshold",    type: "number",  restart: LIVE },
+  { key: "detect_shadows",   label: "Detect shadows",      type: "boolean", restart: LIVE },
+  { key: "fg_threshold",     label: "FG threshold",        type: "number",  restart: LIVE },
+  { key: "dark_threshold",   label: "Dark threshold",      type: "number",  restart: LIVE },
+  { key: "puck_min_area",    label: "Puck min area (px²)", type: "number",  restart: LIVE },
+  { key: "puck_max_area",    label: "Puck max area (px²)", type: "number",  restart: LIVE },
+  { key: "process_scale",    label: "Process scale",       type: "number",  restart: RESTART },
+  { key: "morph_close_size", label: "Morph close size",    type: "number",  restart: LIVE },
+  { key: "morph_open_size",  label: "Morph open size",     type: "number",  restart: LIVE },
+
+  { section: "Tracking" },
+  { key: "min_track_hits",      label: "Min track hits",    type: "number",  restart: LIVE },
+  { key: "tracker_max_dist_px", label: "Max track dist (px)",type: "number", restart: LIVE },
+  { key: "tracker_max_age_s",   label: "Track max age (s)", type: "number",  restart: LIVE },
+
+  { section: "Goal Logic" },
+  { key: "armed_window_seconds",  label: "Armed window (s)",   type: "number",  restart: LIVE },
+  { key: "goal_cooldown_seconds", label: "Goal cooldown (s)",  type: "number",  restart: LIVE },
+  { key: "always_on_default",     label: "Always on (default)",type: "boolean", restart: LIVE },
+  { key: "log_level",             label: "Log level",           type: "select",  restart: LIVE,
+    options: ["DEBUG","INFO","WARNING","ERROR"] },
+
+  { section: "Diagnostics" },
+  { key: "verbose_contour_logging",    label: "Verbose contour log",  type: "boolean", restart: LIVE },
+  { key: "verbose_contour_log_margin", label: "Contour log margin",   type: "number",  restart: LIVE },
+  { key: "verbose_log_throttle_hz",    label: "Log throttle (hz)",    type: "number",  restart: LIVE },
+  { key: "debug_display_scale",        label: "Debug display scale",  type: "number",  restart: LIVE },
+  { key: "debug_goal_flash_seconds",   label: "Goal flash (s)",       type: "number",  restart: LIVE },
+
+  { section: "Calibration" },
+  { key: "goal_line",    label: "Goal line",     type: "readonly" },
+  { key: "net_roi",      label: "Net ROI",       type: "readonly" },
+  { key: "approach_roi", label: "Approach ROI",  type: "readonly" },
+];
+
+// ---------------------------------------------------------------------------
+// WebSocket
+// ---------------------------------------------------------------------------
+
+const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + location.hostname + ":" + location.port;
+let ws = null;
+let reconnectDelay = 500;
+
+function connect() {
+  ws = new WebSocket(wsUrl);
+  ws.onopen = () => {
+    setBrowserStatus(true);
+    reconnectDelay = 500;
+  };
+  ws.onclose = () => {
+    setBrowserStatus(false);
+    setTimeout(connect, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 1.7, 5000);
+  };
+  ws.onerror = () => {};
+  ws.onmessage = (ev) => {
+    try { handleMessage(JSON.parse(ev.data)); } catch {}
+  };
+}
+
+function setBrowserStatus(ok) {
+  const el = document.getElementById("wsStatus");
+  el.classList.toggle("connected", ok);
+  el.querySelector(".label").textContent = ok ? "connected" : "reconnecting…";
+}
+
+function setDetectorStatus(ok) {
+  const el = document.getElementById("detectorStatus");
+  el.classList.toggle("connected", ok);
+  el.querySelector(".label").textContent = ok ? "detector live" : "detector disconnected";
+}
+
+// ---------------------------------------------------------------------------
+// Message handling
+// ---------------------------------------------------------------------------
+
+function handleMessage(msg) {
+  switch (msg.type) {
+    case "heartbeat":
+      updateStats(msg);
+      addLog(msg);
+      break;
+    case "admin":
+      handleAdmin(msg);
+      addLog(msg);
+      break;
+    case "goal":
+    case "no_goal":
+      addLog(msg);
+      break;
+    default:
+      addLog(msg);
+  }
+}
+
+function handleAdmin(msg) {
+  switch (msg.event) {
+    case "connected":
+      setDetectorStatus(msg.detector_connected);
+      if (msg.calibrating) showToast("Calibration in progress…", false);
+      break;
+    case "detector_connected":
+      setDetectorStatus(true);
+      break;
+    case "detector_disconnected":
+      setDetectorStatus(false);
+      clearStats();
+      break;
+    case "restarting":
+      showToast("Restarting service…", false);
+      setButtonBusy("btnRestart", true);
+      break;
+    case "restarted":
+      showToast("Service restarted");
+      setButtonBusy("btnRestart", false);
+      break;
+    case "restart_failed":
+      showToast("Restart failed: " + (msg.error || "unknown"), true);
+      setButtonBusy("btnRestart", false);
+      break;
+    case "calibrating":
+      showToast("Calibration started — use the detector's monitor", false);
+      setButtonBusy("btnCalibrate", true);
+      break;
+    case "calibrated":
+      showToast("Calibration complete — service restarting");
+      setButtonBusy("btnCalibrate", false);
+      loadConfig();
+      break;
+    case "calibration_failed":
+      showToast("Calibration exited with code " + msg.code, true);
+      setButtonBusy("btnCalibrate", false);
+      break;
+  }
+}
+
+function updateStats(msg) {
+  const fps = msg.fps != null ? msg.fps.toFixed(1) : "—";
+  const mode = msg.mode === "always_on" ? "always-on" : (msg.mode || "—");
+  const armed = msg.armed ? "YES" : "no";
+  const tracks = msg.tracks != null ? String(msg.tracks) : "—";
+
+  setText("statFps", fps);
+  setText("statMode", mode);
+  setText("statArmed", armed);
+  setText("statTracks", tracks);
+
+  document.getElementById("statFps").className = "stat-value " + (msg.fps > 80 ? "good" : msg.fps > 40 ? "warn" : "bad");
+  document.getElementById("statArmed").className = "stat-value " + (msg.armed ? "warn" : "");
+}
+
+function clearStats() {
+  ["statFps","statMode","statArmed","statTracks"].forEach(id => setText(id, "—"));
+}
+
+// ---------------------------------------------------------------------------
+// Event log
+// ---------------------------------------------------------------------------
+
+const MAX_LOG = 200;
+function addLog(msg) {
+  const list = document.getElementById("logList");
+  const row = document.createElement("div");
+  const typeClass = msg.type === "admin" ? "admin" : (msg.type || "");
+  row.className = "log-entry " + typeClass;
+  const t = fmt(msg.ts);
+  const label = msg.type === "admin" ? ("admin:" + (msg.event || "")) : (msg.type || "?");
+  const body = formatBody(msg, msg.type === "admin" ? ["type","event","ts"] : ["type","ts"]);
+  row.innerHTML = `<span class="t">${t}</span><span class="type">${esc(label)}</span><span class="body">${esc(body)}</span>`;
+  list.insertBefore(row, list.firstChild);
+  while (list.childElementCount > MAX_LOG) list.removeChild(list.lastChild);
+}
+
+function formatBody(msg, skip) {
+  const s = new Set(skip || []);
+  return Object.keys(msg).filter(k => !s.has(k))
+    .map(k => `${k}=${typeof msg[k] === "object" ? JSON.stringify(msg[k]) : msg[k]}`)
+    .join("  ");
+}
+
+// ---------------------------------------------------------------------------
+// Config editor
+// ---------------------------------------------------------------------------
+
+let currentConfig = {};
+
+async function loadConfig() {
+  try {
+    const r = await fetch("/api/config");
+    currentConfig = await r.json();
+    renderConfig(currentConfig);
+  } catch (e) {
+    showToast("Failed to load config: " + e, true);
+  }
+}
+
+function renderConfig(cfg) {
+  const form = document.getElementById("configForm");
+  form.innerHTML = "";
+  let currentSection = null;
+
+  for (const item of CONFIG_SCHEMA) {
+    if (item.section) {
+      const sec = document.createElement("div");
+      sec.className = "config-section" + (currentSection ? "" : " config-section-first");
+      const title = document.createElement("div");
+      title.className = "config-section-title";
+      title.textContent = item.section;
+      sec.appendChild(title);
+      form.appendChild(sec);
+      currentSection = sec;
+      continue;
+    }
+
+    const val = cfg[item.key] !== undefined ? cfg[item.key] : null;
+    const row = document.createElement("div");
+    row.className = "config-row" + (item.type === "readonly" ? " readonly" : "");
+
+    const label = document.createElement("label");
+    label.setAttribute("for", "cfg_" + item.key);
+    label.textContent = item.label;
+    if (item.restart) {
+      const badge = document.createElement("span");
+      badge.className = "restart-badge";
+      badge.textContent = "restart";
+      label.appendChild(badge);
+    }
+    row.appendChild(label);
+
+    if (item.type === "readonly") {
+      const rv = document.createElement("div");
+      rv.className = "ro-value";
+      rv.title = val != null ? JSON.stringify(val) : "not set";
+      rv.textContent = val != null ? "set (" + (Array.isArray(val) ? val.length + " pts" : "…") + ")" : "not set";
+      row.appendChild(rv);
+    } else if (item.type === "boolean") {
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.id = "cfg_" + item.key;
+      input.checked = !!val;
+      row.appendChild(input);
+    } else if (item.type === "select") {
+      const select = document.createElement("select");
+      select.id = "cfg_" + item.key;
+      for (const opt of (item.options || [])) {
+        const o = document.createElement("option");
+        o.value = opt; o.textContent = opt;
+        if (opt === val) o.selected = true;
+        select.appendChild(o);
+      }
+      row.appendChild(select);
+    } else {
+      const input = document.createElement("input");
+      input.type = item.type === "number" ? "number" : "text";
+      input.id = "cfg_" + item.key;
+      input.value = val != null ? val : "";
+      if (item.type === "number") { input.step = "any"; }
+      row.appendChild(input);
+    }
+
+    currentSection.appendChild(row);
+  }
+}
+
+function collectConfig() {
+  const out = Object.assign({}, currentConfig);
+  for (const item of CONFIG_SCHEMA) {
+    if (!item.key || item.type === "readonly") continue;
+    const el = document.getElementById("cfg_" + item.key);
+    if (!el) continue;
+    if (item.type === "boolean") {
+      out[item.key] = el.checked;
+    } else if (item.type === "number") {
+      const v = parseFloat(el.value);
+      out[item.key] = isNaN(v) ? null : v;
+    } else {
+      out[item.key] = el.value.trim() || null;
+    }
+  }
+  return out;
+}
+
+document.getElementById("btnSave").addEventListener("click", async () => {
+  const data = collectConfig();
+  try {
+    const r = await fetch("/api/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    currentConfig = data;
+    showToast("Config saved — restart service to apply changes");
+  } catch (e) {
+    showToast("Save failed: " + e, true);
+  }
+});
+
+document.getElementById("btnReload").addEventListener("click", () => loadConfig());
+
+// ---------------------------------------------------------------------------
+// Action buttons
+// ---------------------------------------------------------------------------
+
+document.getElementById("btnRestart").addEventListener("click", async () => {
+  if (!confirm("Restart the goal detector service?")) return;
+  try {
+    await fetch("/api/restart", { method: "POST" });
+  } catch (e) {
+    showToast("Request failed: " + e, true);
+  }
+});
+
+document.getElementById("btnCalibrate").addEventListener("click", async () => {
+  if (!confirm("This will stop the detector service and open the calibration window on the detector's monitor. Continue?")) return;
+  try {
+    const r = await fetch("/api/calibrate", { method: "POST" });
+    if (!r.ok) {
+      const body = await r.json();
+      showToast("Error: " + (body.error || r.status), true);
+    }
+  } catch (e) {
+    showToast("Request failed: " + e, true);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function setButtonBusy(id, busy) {
+  const btn = document.getElementById(id);
+  if (btn) btn.disabled = busy;
+}
+
+let toastTimer = null;
+function showToast(msg, isError = false) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.className = "show" + (isError ? " error" : "");
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = ""; }, isError ? 5000 : 3000);
+}
+
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+function fmt(ts) {
+  const d = new Date((ts || Date.now() / 1000) * 1000);
+  return d.toTimeString().slice(0, 8) + "." + String(d.getMilliseconds()).padStart(3, "0");
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+
+connect();
+loadConfig();
+
+})();
+</script>
+</body>
+</html>

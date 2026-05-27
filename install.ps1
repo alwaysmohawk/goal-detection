@@ -301,6 +301,24 @@ $CalibSettings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan 
 Register-ScheduledTask -TaskName $CalibTaskName -Action $CalibAction -Principal $CalibPrincipal -Settings $CalibSettings -Force | Out-Null
 Write-Ok "Calibration task registered (runs as $env:USERNAME)"
 
+# -- Register log cleanup scheduled task -------------------------------------
+# NSSM keeps all rotated log files indefinitely. This task deletes rotated
+# files older than 30 days weekly, keeping disk usage bounded over years of
+# continuous operation. Active log files (stdout.log etc.) are never deleted.
+
+Write-Step "Registering log cleanup task..."
+
+$CleanupTaskName = "hhof-log-cleanup-$NetNum"
+$ActiveLogs = @("stdout.log","stderr.log","admin-stdout.log","admin-stderr.log")
+$ActiveLogsExpr = ($ActiveLogs | ForEach-Object { "'$_'" }) -join ","
+$CleanupScript = "Get-ChildItem -Path '$LogDir' | Where-Object { (@($ActiveLogsExpr) -notcontains `$_.Name) -and (`$_.LastWriteTime -lt (Get-Date).AddDays(-30)) } | Remove-Item -Force"
+$CleanupAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NonInteractive -WindowStyle Hidden -Command `"$CleanupScript`""
+$CleanupTrigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At "03:00"
+$CleanupPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+$CleanupSettings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
+Register-ScheduledTask -TaskName $CleanupTaskName -Action $CleanupAction -Trigger $CleanupTrigger -Principal $CleanupPrincipal -Settings $CleanupSettings -Force | Out-Null
+Write-Ok "Log cleanup task registered (weekly, deletes rotated logs >30 days)"
+
 Write-Step "Starting admin service..."
 & $NssmPath start $AdminServiceName
 if ($LASTEXITCODE -ne 0) {

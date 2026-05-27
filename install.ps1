@@ -70,6 +70,9 @@ Write-Ok "uv at $UvPath"
 Write-Step "Installing Python dependencies..."
 & $UvPath sync --project $RepoRoot
 if ($LASTEXITCODE -ne 0) { Write-Fail "uv sync failed" }
+# arena_api checks its own version via `pip show` at import time.
+# uv sync strips pip from the venv (not in pyproject.toml), so put it back.
+& $UvPath pip install --python "$RepoRoot\.venv\Scripts\python.exe" pip | Out-Null
 Write-Ok "Core dependencies ready (numpy, opencv-python, websockets)"
 
 # -- Check Lucid Vision Arena SDK (native DLLs) ---------------------------

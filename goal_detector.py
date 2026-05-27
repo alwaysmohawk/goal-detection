@@ -444,8 +444,12 @@ class LucidCapture:
 
         # --- Match the ArenaView settings that produced 288fps ---
 
-        # Remove bandwidth cap (off by default in ArenaView).
-        nodemap['DeviceLinkThroughputLimitMode'].value = 'Off'
+        # Remove bandwidth cap (off by default in ArenaView). Optional —
+        # skip if another instance still holds the camera or the node is locked.
+        try:
+            nodemap['DeviceLinkThroughputLimitMode'].value = 'Off'
+        except Exception as e:
+            log.warning(f"Could not set DeviceLinkThroughputLimitMode: {e}")
 
         # Set jumbo-frame packet size on the CAMERA side. This is the key
         # setting: with the default ~1500-byte packets and GevSCPD=80, the
@@ -1511,6 +1515,18 @@ def main():
     if args.calibrate:
         calibrate(cfg, log)
         return
+
+    # Prevent two detector instances from running simultaneously — they would
+    # both try to open the GigE camera and one would get SC_ERR_ACCESS_DENIED.
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            _mutex = ctypes.windll.kernel32.CreateMutexW(None, True, "hhof-goal-detector-mutex")
+            if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+                log.error("Another instance of goal_detector.py is already running. Exiting.")
+                sys.exit(1)
+        except Exception:
+            pass  # non-fatal if mutex check fails
 
     ws = WSClient(cfg["server_url"], cfg["net_id"], log)
     ws.start()

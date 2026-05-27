@@ -208,9 +208,10 @@ Write-Ok "Node.js at $NodePath"
 # -- Install Node dependencies ---------------------------------------------
 
 Write-Step "Installing Node dependencies..."
-$NpmPath = (Get-Command npm -ErrorAction SilentlyContinue).Source
-if (-not $NpmPath) { Write-Fail "npm not found. Ensure Node.js installed correctly." }
-& $NpmPath install --prefix "$RepoRoot" 2>$null | Out-Null
+$NodeDir = Split-Path $NodePath
+$NpmPath = Join-Path $NodeDir "npm.cmd"
+if (-not (Test-Path $NpmPath)) { Write-Fail "npm.cmd not found in $NodeDir. Ensure Node.js installed correctly." }
+& $NpmPath install --prefix "$RepoRoot" --loglevel=error
 if ($LASTEXITCODE -ne 0) { Write-Fail "npm install failed" }
 Write-Ok "Node dependencies ready (ws)"
 

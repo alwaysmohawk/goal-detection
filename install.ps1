@@ -281,11 +281,25 @@ if ($adminExists) {
 & $NssmPath set        $AdminServiceName AppStderrCreationDisposition 4
 & $NssmPath set        $AdminServiceName AppRotateFiles             1
 & $NssmPath set        $AdminServiceName AppRotateBytes             10485760
-& $NssmPath set        $AdminServiceName AppEnvironmentExtra        "GOAL_DETECTOR_SERVICE_NAME=$ServiceName" "UV_PATH=$UvPath" "NSSM_PATH=$NssmPath"
+$CalibTaskName = "hhof-calibrate-$NetNum"
+& $NssmPath set        $AdminServiceName AppEnvironmentExtra        "GOAL_DETECTOR_SERVICE_NAME=$ServiceName" "UV_PATH=$UvPath" "NSSM_PATH=$NssmPath" "CALIBRATE_TASK_NAME=$CalibTaskName"
 & $NssmPath set        $AdminServiceName Description                "HHOF Goalie Simulator - admin panel"
 & $NssmPath set        $AdminServiceName Start                      SERVICE_AUTO_START
 
 Write-Ok "Admin service registered"
+
+# -- Register calibration scheduled task -------------------------------------
+# Runs as the current interactive user so OpenCV windows appear on screen.
+# SYSTEM services (Session 0) cannot show GUI; the task bridges the gap.
+
+Write-Step "Registering calibration task '$CalibTaskName'..."
+
+$CalibArg = "run --project `"$RepoRoot`" python `"$RepoRoot\goal_detector.py`" --calibrate"
+$CalibAction = New-ScheduledTaskAction -Execute $UvPath -Argument $CalibArg
+$CalibPrincipal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
+$CalibSettings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName $CalibTaskName -Action $CalibAction -Principal $CalibPrincipal -Settings $CalibSettings -Force | Out-Null
+Write-Ok "Calibration task registered (runs as $env:USERNAME)"
 
 Write-Step "Starting admin service..."
 & $NssmPath start $AdminServiceName

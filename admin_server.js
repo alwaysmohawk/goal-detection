@@ -31,7 +31,8 @@ const CONFIG_PATH    = path.join(REPO_ROOT, "config.json");
 const ADMIN_HTML     = path.join(REPO_ROOT, "admin.html");
 const HTTP_PORT      = 8090;
 const DETECTOR_WS_PORT = 8766;
-const SERVICE_NAME   = process.env.GOAL_DETECTOR_SERVICE_NAME || "hhof-goal-detector";
+const SERVICE_NAME      = process.env.GOAL_DETECTOR_SERVICE_NAME || "hhof-goal-detector";
+const CALIBRATE_TASK    = process.env.CALIBRATE_TASK_NAME || null;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -165,34 +166,47 @@ const httpServer = http.createServer(async (req, res) => {
             jsonResponse(res, 409, { error: "calibration already running" });
             return;
         }
-        const uv = findUv();
-        if (!uv) { jsonResponse(res, 500, { error: "uv not found" }); return; }
         const nssm = findNssm();
         if (!nssm) { jsonResponse(res, 500, { error: "nssm not found" }); return; }
+        if (!CALIBRATE_TASK) { jsonResponse(res, 500, { error: "CALIBRATE_TASK_NAME not configured — re-run install.ps1" }); return; }
 
         jsonResponse(res, 200, { ok: true });
         calibrating = true;
         broadcast({ type: "admin", event: "calibrating" });
 
-        // Stop detector service, run calibration, restart service
-        try {
-            spawnSync(nssm, ["stop", SERVICE_NAME], { shell: false });
-        } catch {}
+        // Stop detector service so it releases the camera
+        try { spawnSync(nssm, ["stop", SERVICE_NAME], { shell: false }); } catch {}
 
-        const script = path.join(REPO_ROOT, "goal_detector.py");
-        const proc = spawn(uv, ["run", "--project", REPO_ROOT, "python", script, "--calibrate"], {
-            stdio: "inherit",   // opens OpenCV window on local display
-            shell: false,
-        });
-
-        proc.on("close", (code) => {
+        // Trigger the calibration scheduled task, which runs as the interactive user
+        // so OpenCV windows appear on the local display (SYSTEM services run in
+        // Session 0 and cannot open GUI windows in the user's session).
+        const runResult = spawnSync("schtasks", ["/run", "/tn", CALIBRATE_TASK], { shell: false });
+        if (runResult.status !== 0) {
             calibrating = false;
-            broadcast({ type: "admin", event: code === 0 ? "calibrated" : "calibration_failed", code });
+            broadcast({ type: "admin", event: "calibration_failed", code: runResult.status,
+                        error: "schtasks /run failed — task may not exist, re-run install.ps1" });
+            try { spawnSync(nssm, ["start", SERVICE_NAME], { shell: false }); } catch {}
+            return;
+        }
 
-            try {
-                spawnSync(nssm, ["start", SERVICE_NAME], { shell: false });
-            } catch {}
-        });
+        // Poll every 2s: wait until we first see Running, then wait for it to stop.
+        let sawRunning = false;
+        let polls = 0;
+        const MAX_POLLS = 300; // 10 minutes
+        const timer = setInterval(() => {
+            polls++;
+            const q = spawnSync("schtasks", ["/query", "/tn", CALIBRATE_TASK, "/fo", "CSV", "/nh"], { shell: false });
+            const out = q.stdout ? q.stdout.toString() : "";
+            if (out.includes('"Running"')) {
+                sawRunning = true;
+            } else if (sawRunning || polls >= MAX_POLLS) {
+                clearInterval(timer);
+                calibrating = false;
+                broadcast({ type: "admin", event: sawRunning ? "calibrated" : "calibration_failed",
+                            code: sawRunning ? 0 : 1 });
+                try { spawnSync(nssm, ["start", SERVICE_NAME], { shell: false }); } catch {}
+            }
+        }, 2000);
         return;
     }
 

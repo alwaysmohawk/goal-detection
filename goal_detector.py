@@ -71,6 +71,12 @@ DEFAULT_CONFIG = {
                                        # install dir so the native DLLs can be found. Defaults
                                        # to "C:\Program Files\Lucid Vision Labs\Arena SDK".
                                        # Only needed if you installed to a non-default location.
+    "lucid_serial": None,              # Lucid/Arena backend only: select camera by serial number
+                                       # (printed on the camera body). Required when more than one
+                                       # Lucid camera is on the same GigE network — without this
+                                       # the detector opens whichever camera is listed first, which
+                                       # is non-deterministic. Leave null to use the first found
+                                       # (fine for single-camera setups).
     "lucid_exposure_us": 7800,         # Lucid/Arena backend only: exposure in microseconds.
                                        # 7800 ≈ 1/128s. Only used when auto_exposure=False.
     "goal_line": None,                 # [[x1,y1],[x2,y2]] - set via --calibrate
@@ -432,14 +438,37 @@ class LucidCapture:
         self._log = log
         self._arena = _arena_system
 
-        # Trigger device discovery and create the first device found.
+        # Trigger device discovery.
         device_infos = self._arena.device_infos
         if not device_infos:
             log.error("No Lucid GigE devices found. "
                       "Check camera is connected, powered, and IP is configured.")
             sys.exit(2)
 
-        self._device = self._arena.create_device(device_infos[0])[0]
+        log.info(f"Found {len(device_infos)} Lucid device(s): " +
+                 ", ".join(f"{d.get('model','?')} serial={d.get('serial','?')} ip={d.get('ip','?')}"
+                           for d in device_infos))
+
+        target_serial = cfg.get("lucid_serial")
+        if target_serial:
+            match = [d for d in device_infos if str(d.get("serial", "")) == str(target_serial)]
+            if not match:
+                serials = [d.get("serial", "?") for d in device_infos]
+                log.error(f"lucid_serial={target_serial!r} not found. "
+                          f"Available serials: {serials}. "
+                          f"Check config.json or the serial number on the camera body.")
+                sys.exit(2)
+            chosen = match[0]
+        else:
+            chosen = device_infos[0]
+            if len(device_infos) > 1:
+                log.warning(f"Multiple Lucid cameras found and lucid_serial is not set — "
+                            f"opening first found (serial={chosen.get('serial','?')}). "
+                            f"Set lucid_serial in config.json to make this deterministic.")
+
+        log.info(f"Opening Lucid device: model={chosen.get('model','?')} "
+                 f"serial={chosen.get('serial','?')} ip={chosen.get('ip','?')}")
+        self._device = self._arena.create_device(chosen)[0]
         nodemap = self._device.nodemap
 
         # --- Match the ArenaView settings that produced 288fps ---

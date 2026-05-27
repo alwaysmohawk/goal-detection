@@ -32,18 +32,15 @@ Write-Host "Press Enter to accept the default shown in brackets.`n"
 $ServerUrl = Read-Host "WebSocket server URL  [ws://localhost:8765]"
 if (-not $ServerUrl) { $ServerUrl = "ws://localhost:8765" }
 
-$NetId = Read-Host "Net ID                [net_1]"
-if (-not $NetId) { $NetId = "net_1" }
-
-$ServiceName = Read-Host "Service name          [hhof-goal-detector]"
-if (-not $ServiceName) { $ServiceName = "hhof-goal-detector" }
+$NetNum = Read-Host "Net number            [1]"
+if (-not $NetNum) { $NetNum = "1" }
+$NetId = "net_$NetNum"
+$ServiceName = "goal-detector-$NetNum"
+$AdminServiceName = "goal-detector-admin-$NetNum"
 
 $UseGigE = Read-Host "Using Lucid GigE camera? (y/n)  [y]"
 if (-not $UseGigE) { $UseGigE = "y" }
 $UseGigE = $UseGigE.Trim().ToLower() -eq "y"
-
-$AdminServiceName = Read-Host "Admin service name    [hhof-admin]"
-if (-not $AdminServiceName) { $AdminServiceName = "hhof-admin" }
 
 # -- Install uv -----------------------------------------------------------
 

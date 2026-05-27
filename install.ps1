@@ -292,7 +292,7 @@ Write-Step "Starting admin service..."
 if ($LASTEXITCODE -ne 0) {
     Write-Warn "Admin service did not start cleanly. Check: nssm status $AdminServiceName"
 } else {
-    Write-Ok "Admin panel running at http://localhost:8080"
+    Write-Ok "Admin panel running at http://localhost:8090"
 }
 
 # -- Start detector service (only if calibrated) --------------------------
@@ -331,7 +331,7 @@ Write-Host "`n----------------------------------------" -ForegroundColor Green
 Write-Host " Install complete" -ForegroundColor Green
 Write-Host "----------------------------------------" -ForegroundColor Green
 Write-Host " Detector : $ServiceName"
-Write-Host " Admin    : $AdminServiceName  ->  http://localhost:8080"
+Write-Host " Admin    : $AdminServiceName  ->  http://localhost:8090"
 Write-Host " Net ID   : $NetId"
 Write-Host " Server   : $ServerUrl"
 Write-Host " Logs     : $LogDir"

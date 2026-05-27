@@ -1,9 +1,9 @@
 /**
  * HHOF Goal Detector — Admin Server
  *
- * HTTP on port 8080: serves admin.html and REST API
+ * HTTP on port 8090: serves admin.html and REST API
  * WS  on port 8766: accepts the goal detector's admin connection
- * WS  on port 8080: browser clients connect here for live status
+ * WS  on port 8090: browser clients connect here for live status
  *
  * Runs as an NSSM service (SYSTEM account), so it can restart the
  * goal detector service without elevation.
@@ -29,7 +29,7 @@ const WebSocket = require("ws");
 const REPO_ROOT      = __dirname;
 const CONFIG_PATH    = path.join(REPO_ROOT, "config.json");
 const ADMIN_HTML     = path.join(REPO_ROOT, "admin.html");
-const HTTP_PORT      = 8080;
+const HTTP_PORT      = 8090;
 const DETECTOR_WS_PORT = 8766;
 const SERVICE_NAME   = process.env.GOAL_DETECTOR_SERVICE_NAME || "hhof-goal-detector";
 

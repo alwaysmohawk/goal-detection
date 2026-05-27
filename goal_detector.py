@@ -211,7 +211,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
     Reuses a single window across all phases for a clearer UX.
     """
     cap = open_capture(cfg, log)
-    cv2.namedWindow(CALIB_WINDOW)
+    cv2.namedWindow(CALIB_WINDOW, cv2.WINDOW_NORMAL)
 
     # ============================================================
     # STEP 1/4 — capture a clean frame
@@ -1028,6 +1028,14 @@ def run_detector(cfg: dict, ws: WSClient, debug: bool, log: logging.Logger,
     log.info(f"Detector running. Mode: {'always-on' if state.always_on else 'armed-only'}. "
              f"Press 'a' to toggle armed/always-on, 'd' to toggle debug, 'q' to quit.")
 
+    _WIN_MAIN = "goal_detector (q=quit, a=toggle mode, d=hide debug)"
+    _WIN_MASK = "foreground mask"
+    if debug:
+        cv2.namedWindow(_WIN_MAIN, cv2.WINDOW_NORMAL)
+        cv2.namedWindow(_WIN_MASK, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(_WIN_MAIN, w, h)
+        cv2.resizeWindow(_WIN_MASK, w, h)
+
     # Per-stage timing accumulators. Reset and reported every second alongside fps.
     t_capture_acc = 0.0
     t_cv_acc = 0.0
@@ -1313,8 +1321,8 @@ def run_detector(cfg: dict, ws: WSClient, debug: bool, log: logging.Logger,
                     frame_disp = frame
                     fg_disp = fg
 
-                cv2.imshow("goal_detector (q=quit, a=toggle mode, d=hide debug)", frame_disp)
-                cv2.imshow("foreground mask", fg_disp)
+                cv2.imshow(_WIN_MAIN, frame_disp)
+                cv2.imshow(_WIN_MASK, fg_disp)
                 k = cv2.waitKey(1) & 0xFF
                 if k == ord('q'):
                     break

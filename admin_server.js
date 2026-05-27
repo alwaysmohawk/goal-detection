@@ -47,13 +47,15 @@ function findUv() {
         if (fs.existsSync(p)) return p;
     }
     // Fall back to PATH
-    const r = spawnSync("uv", ["--version"], { shell: true });
+    const r = spawnSync("uv", ["--version"], { shell: false });
     if (r.status === 0) return "uv";
     return null;
 }
 
 function findNssm() {
-    const r = spawnSync("nssm", ["version"], { shell: true });
+    const fromEnv = process.env.NSSM_PATH;
+    if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
+    const r = spawnSync("nssm", ["version"], { shell: false });
     if (r.status === 0) return "nssm";
     return null;
 }

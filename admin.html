@@ -617,7 +617,11 @@ document.getElementById("btnReload").addEventListener("click", () => loadConfig(
 document.getElementById("btnRestart").addEventListener("click", async () => {
   if (!confirm("Restart the goal detector service?")) return;
   try {
-    await fetch("/api/restart", { method: "POST" });
+    const r = await fetch("/api/restart", { method: "POST" });
+    if (!r.ok) {
+      const body = await r.json();
+      showToast("Error: " + (body.error || r.status), true);
+    }
   } catch (e) {
     showToast("Request failed: " + e, true);
   }

@@ -281,7 +281,7 @@ if ($adminExists) {
 & $NssmPath set        $AdminServiceName AppStderrCreationDisposition 4
 & $NssmPath set        $AdminServiceName AppRotateFiles             1
 & $NssmPath set        $AdminServiceName AppRotateBytes             10485760
-& $NssmPath set        $AdminServiceName AppEnvironmentExtra        "GOAL_DETECTOR_SERVICE_NAME=$ServiceName" "UV_PATH=$UvPath"
+& $NssmPath set        $AdminServiceName AppEnvironmentExtra        "GOAL_DETECTOR_SERVICE_NAME=$ServiceName" "UV_PATH=$UvPath" "NSSM_PATH=$NssmPath"
 & $NssmPath set        $AdminServiceName Description                "HHOF Goalie Simulator - admin panel"
 & $NssmPath set        $AdminServiceName Start                      SERVICE_AUTO_START
 

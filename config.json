@@ -1,6 +1,6 @@
 {
   "net_id": "net_1",
-  "server_url": "ws://localhost:8765",
+  "server_url": "http://localhost:3000",
   "source": 1,
   "frame_width": 720,
   "frame_height": 540,

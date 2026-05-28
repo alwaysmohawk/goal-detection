@@ -8,7 +8,7 @@ Usage:
     python goal_detector.py                          # run detector
     python goal_detector.py --debug                  # run with overlay window
     python goal_detector.py --source 1               # specific webcam index
-    python goal_detector.py --server ws://host:8765  # override config
+    python goal_detector.py --server http://host:3000  # override config
 
 Architecture notes:
     - Python is a WebSocket *client*. It connects out to a server (the dev
@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import logging
 import queue
@@ -54,7 +55,7 @@ CONFIG_PATH = Path(__file__).with_name("config.json")
 
 DEFAULT_CONFIG = {
     "net_id": "net_1",                 # which net this Pi is for
-    "server_url": "ws://localhost:8765",
+    "server_url": "http://localhost:3000",
     "admin_server_url": "ws://localhost:8766",  # local admin panel WS; set to null to disable
     "source": 0,                       # webcam index, or path to video file for testing
     "frame_width": 1280,
@@ -906,6 +907,107 @@ class WSClient:
 
 
 # ---------------------------------------------------------------------------
+# Socket.IO client (game server — port 3000)
+# ---------------------------------------------------------------------------
+
+class SIOClient:
+    """
+    Socket.IO client for the game server.
+    Receives shot:incoming events; emits shot:response for goal/no_goal.
+    Same queue interface as WSClient so the detector loop is unchanged.
+    """
+
+    def __init__(self, url: str, net_id: str, log: logging.Logger):
+        self.url = url
+        self.net_id = net_id
+        self.log = log
+        self.send_queue: queue.Queue = queue.Queue()
+        self.recv_queue: queue.Queue = queue.Queue()
+        self.connected = threading.Event()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self):
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+
+    def send(self, msg: dict):
+        self.send_queue.put(msg)
+
+    def _run(self):
+        asyncio.run(self._main())
+
+    async def _main(self):
+        try:
+            import socketio as sio_module
+        except ImportError:
+            self.log.error("python-socketio not installed. Run: uv sync")
+            return
+
+        backoff = 1.0
+        while not self._stop.is_set():
+            sio = sio_module.AsyncClient(reconnection=False, logger=False, engineio_logger=False)
+            disconnected = asyncio.Event()
+
+            @sio.event
+            async def connect():
+                self.connected.set()
+                self.log.info(f"Socket.IO connected to {self.url}")
+
+            @sio.event
+            async def disconnect():
+                self.connected.clear()
+                disconnected.set()
+                self.log.warning("Socket.IO disconnected")
+
+            @sio.on("shot:incoming")
+            async def on_shot_incoming(data):
+                self.recv_queue.put({"type": "shot_incoming", "timestamp": data.get("timestamp")})
+
+            try:
+                await sio.connect(self.url)
+                backoff = 1.0
+                await asyncio.gather(
+                    self._sender(sio, disconnected),
+                    sio.wait(),
+                    return_exceptions=True,
+                )
+            except Exception as e:
+                if self._stop.is_set():
+                    break
+                self.log.warning(f"Socket.IO disconnected: {e}. Reconnecting in {backoff:.1f}s")
+            finally:
+                self.connected.clear()
+                with contextlib.suppress(Exception):
+                    await sio.disconnect()
+
+            if self._stop.is_set():
+                break
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 1.7, 10.0)
+
+    async def _sender(self, sio, disconnected: asyncio.Event):
+        loop = asyncio.get_event_loop()
+        while not self._stop.is_set() and not disconnected.is_set():
+            try:
+                msg = await loop.run_in_executor(None, self.send_queue.get, True, 0.2)
+            except queue.Empty:
+                continue
+            if msg is None:
+                continue
+            result = "goal" if msg.get("type") == "goal" else "save"
+            try:
+                await sio.emit("shot:response", {
+                    "timestamp": msg.get("shot_ts") or int(time.time()),
+                    "payload": {"result": result},
+                })
+            except Exception as e:
+                self.log.warning(f"Socket.IO emit failed: {e}")
+
+
+# ---------------------------------------------------------------------------
 # Detector
 # ---------------------------------------------------------------------------
 
@@ -914,17 +1016,18 @@ class DetectorState:
     armed_until: float = 0.0       # epoch time; if > now, we're in the armed window
     last_goal_emit: float = 0.0
     always_on: bool = False
-    pending_shot_id: Optional[str] = None  # opaque id from the Node 'shot_incoming'
+    pending_shot_ts: Optional[int] = None  # timestamp from the game server's shot:incoming
 
 
-def run_detector(cfg: dict, ws: WSClient, debug: bool, log: logging.Logger,
-                 admin_ws: Optional["WSClient"] = None) -> None:
+def run_detector(cfg: dict, ws: "SIOClient", debug: bool, log: logging.Logger,
+                 admin_ws: Optional[WSClient] = None) -> None:
     if cfg["goal_line"] is None or cfg["net_roi"] is None:
         log.error("No calibration found. Run with --calibrate first.")
         sys.exit(3)
 
     def _send(msg: dict) -> None:
-        ws.send(msg)
+        if msg.get("type") in ("goal", "no_goal"):
+            ws.send(msg)
         if admin_ws is not None:
             admin_ws.send(dict(msg))
 
@@ -1268,32 +1371,32 @@ def run_detector(cfg: dict, ws: WSClient, debug: bool, log: logging.Logger,
                         vx, vy = tr.velocity
                         speed_px_s = (vx * vx + vy * vy) ** 0.5
                         log.info(f"GOAL track={tr.id} speed_px_s={speed_px_s:.0f} "
-                                 f"shot_id={state.pending_shot_id}")
+                                 f"shot_ts={state.pending_shot_ts}")
                         _send({
                             "type": "goal",
                             "track_id": tr.id,
                             "speed_px_s": round(speed_px_s, 1),
-                            "shot_id": state.pending_shot_id,
+                            "shot_ts": state.pending_shot_ts,
                             "mode": "always_on" if state.always_on else "armed",
                         })
                         # Disarm after a goal in armed mode
                         if not state.always_on:
                             state.armed_until = 0.0
-                            state.pending_shot_id = None
+                            state.pending_shot_ts = None
 
             # ---- Armed-window expiration -> emit explicit no_goal ----
             if (not state.always_on
-                    and state.pending_shot_id is not None
+                    and state.pending_shot_ts is not None
                     and now >= state.armed_until
                     and state.armed_until != 0.0):
-                log.info(f"NO_GOAL shot_id={state.pending_shot_id} (armed window expired)")
+                log.info(f"NO_GOAL shot_ts={state.pending_shot_ts} (armed window expired)")
                 _send({
                     "type": "no_goal",
-                    "shot_id": state.pending_shot_id,
+                    "shot_ts": state.pending_shot_ts,
                     "reason": "window_expired",
                 })
                 state.armed_until = 0.0
-                state.pending_shot_id = None
+                state.pending_shot_ts = None
 
             # ---- FPS / heartbeat ----
             frames_since += 1
@@ -1382,8 +1485,8 @@ def handle_inbound(msg: dict, state: DetectorState, cfg: dict, log: logging.Logg
     t = msg.get("type")
     if t == "shot_incoming":
         state.armed_until = time.time() + cfg["armed_window_seconds"]
-        state.pending_shot_id = msg.get("shot_id") or f"shot_{int(time.time()*1000)}"
-        log.info(f"SHOT_INCOMING shot_id={state.pending_shot_id} "
+        state.pending_shot_ts = msg.get("timestamp") or int(time.time())
+        log.info(f"SHOT_INCOMING ts={state.pending_shot_ts} "
                  f"window={cfg['armed_window_seconds']}s")
     elif t == "set_mode":
         mode = msg.get("mode")
@@ -1522,7 +1625,7 @@ def main():
     ap.add_argument("--calibrate", action="store_true", help="Run interactive calibration")
     ap.add_argument("--debug", action="store_true", help="Show overlay windows")
     ap.add_argument("--source", type=int, default=None, help="Override webcam source index")
-    ap.add_argument("--server", type=str, default=None, help="Override WebSocket server URL")
+    ap.add_argument("--server", type=str, default=None, help="Override game server URL (Socket.IO, e.g. http://host:3000)")
     ap.add_argument("--net-id", type=str, default=None, help="Override net_id")
     ap.add_argument("--log-level", type=str, default=None,
                     choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -1557,7 +1660,7 @@ def main():
         except Exception:
             pass  # non-fatal if mutex check fails
 
-    ws = WSClient(cfg["server_url"], cfg["net_id"], log)
+    ws = SIOClient(cfg["server_url"], cfg["net_id"], log)
     ws.start()
 
     admin_ws = None

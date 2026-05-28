@@ -4,7 +4,11 @@
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(uv sync *)",
+      "PowerShell(& \"C:\\\\Users\\\\AlexanderForster\\\\.local\\\\bin\\\\uv.exe\" sync 2>&1)",
+      "PowerShell(nssm get goal-detector-1 AppParameters 2>&1)",
+      "PowerShell(nssm get goal-detector-1 Application 2>&1)"
     ]
   }
 }

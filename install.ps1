@@ -29,8 +29,8 @@ if (-not (Test-Path "$RepoRoot\goal_detector.py")) {
 Write-Host "`nHHOF Goal Detector - Service Installer" -ForegroundColor Green
 Write-Host "Press Enter to accept the default shown in brackets.`n"
 
-$ServerUrl = Read-Host "WebSocket server URL  [ws://localhost:8765]"
-if (-not $ServerUrl) { $ServerUrl = "ws://localhost:8765" }
+$ServerUrl = Read-Host "Game server URL  [http://localhost:3000]"
+if (-not $ServerUrl) { $ServerUrl = "http://localhost:3000" }
 
 $NetNum = Read-Host "Net number            [1]"
 if (-not $NetNum) { $NetNum = "1" }

@@ -963,8 +963,9 @@ class SIOClient:
                 self.log.warning("Socket.IO disconnected")
 
             @sio.on("shot:incoming")
-            async def on_shot_incoming(data):
-                self.recv_queue.put({"type": "shot_incoming", "timestamp": data.get("timestamp")})
+            async def on_shot_incoming(data=None):
+                ts = data.get("timestamp") if isinstance(data, dict) else int(time.time())
+                self.recv_queue.put({"type": "shot_incoming", "timestamp": ts})
 
             try:
                 await sio.connect(self.url)

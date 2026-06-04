@@ -290,23 +290,6 @@ const LIVE    = false;
 // [key, label, type, options?, requiresRestart]
 // types: "text" | "number" | "boolean" | "select" | "readonly"
 const CONFIG_SCHEMA = [
-  { section: "Connection" },
-  { key: "net_id",           label: "Net ID",              type: "text",    restart: RESTART },
-  { key: "server_url",       label: "Server URL",          type: "text",    restart: RESTART },
-
-  { section: "Camera" },
-  { key: "source",           label: "Source index",        type: "number",  restart: RESTART },
-  { key: "frame_width",      label: "Frame width",         type: "number",  restart: RESTART },
-  { key: "frame_height",     label: "Frame height",        type: "number",  restart: RESTART },
-  { key: "target_fps",       label: "Target FPS",          type: "number",  restart: RESTART },
-  { key: "capture_backend",  label: "Capture backend",     type: "select",  restart: RESTART,
-    options: ["auto","dshow","msmf","v4l2","any","lucid"] },
-  { key: "auto_exposure",    label: "Auto exposure",       type: "boolean", restart: RESTART },
-  { key: "manual_exposure",  label: "Manual exposure (log2 s)", type: "number", restart: RESTART },
-  { key: "lucid_exposure_us",label: "Lucid exposure (µs)", type: "number",  restart: RESTART },
-  { key: "lucid_serial",     label: "Lucid serial number", type: "text",    restart: RESTART },
-  { key: "lucid_sdk_path",   label: "Lucid SDK path",      type: "text",    restart: RESTART },
-
   { section: "Detection" },
   { key: "detection_method", label: "Detection method",    type: "select",  restart: RESTART,
     options: ["motion","dark","combined"] },
@@ -344,6 +327,20 @@ const CONFIG_SCHEMA = [
   { key: "goal_line",    label: "Goal line",     type: "readonly" },
   { key: "net_roi",      label: "Net ROI",       type: "readonly" },
   { key: "approach_roi", label: "Approach ROI",  type: "readonly" },
+  { key: "back_roi",     label: "Back zone ROI", type: "readonly" },
+
+  { section: "Camera" },
+  { key: "source",           label: "Source index",        type: "number",  restart: RESTART },
+  { key: "frame_width",      label: "Frame width",         type: "number",  restart: RESTART },
+  { key: "frame_height",     label: "Frame height",        type: "number",  restart: RESTART },
+  { key: "target_fps",       label: "Target FPS",          type: "number",  restart: RESTART },
+  { key: "capture_backend",  label: "Capture backend",     type: "select",  restart: RESTART,
+    options: ["auto","dshow","msmf","v4l2","any","lucid"] },
+  { key: "auto_exposure",    label: "Auto exposure",       type: "boolean", restart: RESTART },
+  { key: "manual_exposure",  label: "Manual exposure (log2 s)", type: "number", restart: RESTART },
+  { key: "lucid_exposure_us",label: "Lucid exposure (µs)", type: "number",  restart: RESTART },
+  { key: "lucid_serial",     label: "Lucid serial number", type: "text",    restart: RESTART },
+  { key: "lucid_sdk_path",   label: "Lucid SDK path",      type: "text",    restart: RESTART },
 ];
 
 // ---------------------------------------------------------------------------

@@ -83,6 +83,7 @@ DEFAULT_CONFIG = {
     "goal_line": None,                 # [[x1,y1],[x2,y2]] - set via --calibrate
     "net_roi": None,                   # [[x,y], ...] polygon - set via --calibrate
     "approach_roi": None,              # [[x,y], ...] polygon in front of goal - set via --calibrate
+    "back_roi": None,                  # [[x,y], ...] polygon behind net - puck here means it went over, not in
 
     # ---- Detection ----
     "puck_min_area": 80,               # px^2 - applied to MERGED blob, not raw fragments
@@ -127,6 +128,8 @@ DEFAULT_CONFIG = {
     "armed_window_seconds": 2.0,       # how long after shot_incoming to look for goal
     "goal_cooldown_seconds": 0.5,      # min gap between goal events
     "always_on_default": False,        # start in armed-mode by default
+    "goal_confirm_ms": 200,            # ms after crossing to confirm puck stayed in net
+    "goal_speed_confirm_fraction": 0.25,  # confirm early if speed drops to this fraction of crossing speed
     "log_level": "INFO",
 
     # ---- Debug display ----
@@ -210,20 +213,21 @@ CALIB_WINDOW = "Goal Detector Calibration"
 
 def calibrate(cfg: dict, log: logging.Logger) -> None:
     """
-    Interactive 4-step calibration:
+    Interactive 5-step calibration:
       1. Capture a clean frame from the camera.
       2. Click 2 points to define the goal line.
       3. Click 4+ points to outline the net interior polygon.
       4. Click 4+ points to outline the approach zone in front of the goal.
+      5. Click 4+ points to outline the back zone behind the net (where puck lands if it goes over).
     Reuses a single window across all phases for a clearer UX.
     """
     cap = open_capture(cfg, log)
     cv2.namedWindow(CALIB_WINDOW, cv2.WINDOW_NORMAL)
 
     # ============================================================
-    # STEP 1/4 — capture a clean frame
+    # STEP 1/5 — capture a clean frame
     # ============================================================
-    log.info("Step 1/4: position the camera, then press SPACE to capture a reference frame.")
+    log.info("Step 1/5: position the camera, then press SPACE to capture a reference frame.")
 
     frame = None
     while True:
@@ -232,7 +236,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
             log.warning("Camera not ready yet, retrying...")
             time.sleep(0.05)
             continue
-        _draw_banner(f, 1, 4, "Capture reference frame",
+        _draw_banner(f, 1, 5, "Capture reference frame",
                      "[SPACE] capture    [Q] quit")
         cv2.imshow(CALIB_WINDOW, f)
         k = cv2.waitKey(1) & 0xFF
@@ -252,7 +256,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
     # so the banner can be redrawn fresh on every iteration of subsequent steps.
 
     # ============================================================
-    # STEP 2/4 — goal line (2 points)
+    # STEP 2/5 — goal line (2 points)
     # ============================================================
     line_pts: list[tuple[int, int]] = []
 
@@ -262,7 +266,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
             line_pts.append((x, y))
 
     cv2.setMouseCallback(CALIB_WINDOW, on_line_click)
-    log.info("Step 2/4: click LEFT POST, then RIGHT POST on the goal line. Enter to confirm.")
+    log.info("Step 2/5: click LEFT POST, then RIGHT POST on the goal line. Enter to confirm.")
 
     while True:
         disp = frame.copy()
@@ -278,7 +282,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
         instr = (f"clicks: {len(line_pts)}/2    "
                  f"[ENTER] confirm    [R] reset    [Q] quit")
         title = "Click LEFT POST, then RIGHT POST on the goal line"
-        _draw_banner(disp, 2, 4, title, instr)
+        _draw_banner(disp, 2, 5, title, instr)
         cv2.imshow(CALIB_WINDOW, disp)
         k = cv2.waitKey(20) & 0xFF
         if k == 13 and len(line_pts) == 2:  # Enter
@@ -290,7 +294,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
             return
 
     # ============================================================
-    # STEP 3/4 — net ROI polygon (4+ points)
+    # STEP 3/5 — net ROI polygon (4+ points)
     # ============================================================
     poly_pts: list[tuple[int, int]] = []
 
@@ -299,7 +303,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
             poly_pts.append((x, y))
 
     cv2.setMouseCallback(CALIB_WINDOW, on_poly_click)
-    log.info("Step 3/4: click 4+ points around the inside of the net. Enter when done.")
+    log.info("Step 3/5: click 4+ points around the inside of the net. Enter when done.")
 
     while True:
         disp = frame.copy()
@@ -320,7 +324,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
                  f"[ENTER]{'confirm' if ready else ' need more pts'}    "
                  f"[R] reset    [Q] quit")
         title = "Click around the inside of the net (where pucks count as IN)"
-        _draw_banner(disp, 3, 4, title, instr)
+        _draw_banner(disp, 3, 5, title, instr)
         cv2.imshow(CALIB_WINDOW, disp)
         k = cv2.waitKey(20) & 0xFF
         if k == 13 and ready:
@@ -332,7 +336,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
             return
 
     # ============================================================
-    # STEP 4/4 — approach zone polygon (4+ points)
+    # STEP 4/5 — approach zone polygon (4+ points)
     # ============================================================
     approach_pts: list[tuple[int, int]] = []
 
@@ -341,7 +345,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
             approach_pts.append((x, y))
 
     cv2.setMouseCallback(CALIB_WINDOW, on_approach_click)
-    log.info("Step 4/4: click 4+ points around the area in FRONT of the goal. Enter when done.")
+    log.info("Step 4/5: click 4+ points around the area in FRONT of the goal. Enter when done.")
 
     while True:
         disp = frame.copy()
@@ -366,7 +370,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
                  f"[ENTER]{'confirm' if ready else ' need more pts'}    "
                  f"[R] reset    [Q] quit")
         title = "Click around the area IN FRONT of the goal (approach / shooting zone)"
-        _draw_banner(disp, 4, 4, title, instr)
+        _draw_banner(disp, 4, 5, title, instr)
         cv2.imshow(CALIB_WINDOW, disp)
         k = cv2.waitKey(20) & 0xFF
         if k == 13 and ready:
@@ -377,11 +381,60 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
             cv2.destroyAllWindows()
             return
 
+    # ============================================================
+    # STEP 5/5 — back zone polygon (4+ points)
+    # ============================================================
+    back_pts: list[tuple[int, int]] = []
+
+    def on_back_click(event, x, y, flags, param):
+        if event == cv2.EVENT_LBUTTONDOWN and y > 70:
+            back_pts.append((x, y))
+
+    cv2.setMouseCallback(CALIB_WINDOW, on_back_click)
+    log.info("Step 5/5: click 4+ points around the BACK ZONE (where puck lands if it goes over the net). Enter when done.")
+
+    while True:
+        disp = frame.copy()
+        # Show goal line, net ROI and approach zone for reference
+        cv2.line(disp, tuple(line_pts[0]), tuple(line_pts[1]), (0, 0, 255), 2)
+        overlay = disp.copy()
+        cv2.fillPoly(overlay, [np.array(poly_pts)], (0, 255, 0))
+        cv2.fillPoly(overlay, [np.array(approach_pts)], (0, 220, 220))
+        disp = cv2.addWeighted(overlay, 0.15, disp, 0.85, 0)
+        cv2.polylines(disp, [np.array(poly_pts)], True, (0, 255, 0), 1)
+        cv2.polylines(disp, [np.array(approach_pts)], True, (0, 220, 220), 1)
+        # Draw back zone in-progress in orange
+        for p in back_pts:
+            cv2.circle(disp, p, 5, (0, 128, 255), -1)
+        if len(back_pts) >= 2:
+            cv2.polylines(disp, [np.array(back_pts)], False, (0, 128, 255), 2)
+        if len(back_pts) >= 3:
+            overlay2 = disp.copy()
+            cv2.fillPoly(overlay2, [np.array(back_pts)], (0, 128, 255))
+            disp = cv2.addWeighted(overlay2, 0.2, disp, 0.8, 0)
+
+        ready = len(back_pts) >= 4
+        instr = (f"points: {len(back_pts)} (need 4+)    "
+                 f"[ENTER]{'confirm' if ready else ' need more pts'}    "
+                 f"[R] reset    [Q] quit")
+        title = "Click around the BACK ZONE (behind the net — puck here = went over, not in)"
+        _draw_banner(disp, 5, 5, title, instr)
+        cv2.imshow(CALIB_WINDOW, disp)
+        k = cv2.waitKey(20) & 0xFF
+        if k == 13 and ready:
+            break
+        if k == ord('r'):
+            back_pts.clear()
+        if k == ord('q'):
+            cv2.destroyAllWindows()
+            return
+
     cv2.destroyAllWindows()
 
     cfg["goal_line"] = [list(p) for p in line_pts]
     cfg["net_roi"] = [list(p) for p in poly_pts]
     cfg["approach_roi"] = [list(p) for p in approach_pts]
+    cfg["back_roi"] = [list(p) for p in back_pts]
     save_config(cfg)
     log.info(f"Calibration saved to {CONFIG_PATH}")
 
@@ -1018,6 +1071,12 @@ class DetectorState:
     last_goal_emit: float = 0.0
     always_on: bool = False
     pending_shot_ts: Optional[int] = None  # timestamp from the game server's shot:incoming
+    # Pending goal confirmation (set when a line crossing is detected; resolved after confirm window)
+    pending_goal_msg: Optional[dict] = None
+    pending_goal_until: float = 0.0
+    pending_goal_crossing_speed: float = 0.0
+    pending_goal_ever_in_net: bool = False
+    pending_goal_cancelled: bool = False
 
 
 def run_detector(cfg: dict, ws: "SIOClient", debug: bool, log: logging.Logger,
@@ -1131,12 +1190,23 @@ def run_detector(cfg: dict, ws: "SIOClient", debug: bool, log: logging.Logger,
                  f"reflected approach zone ({len(approach_poly)} verts) "
                  f"[re-run --calibrate to draw approach zone manually]")
 
-    # Build the combined mask: net interior + approach zone.
+    # Back zone: veto region behind the net. If a puck enters here after crossing
+    # the goal line it means it went over rather than into the net.
+    back_roi_np: Optional[np.ndarray] = None
+    if cfg.get("back_roi"):
+        back_roi_np = np.array(cfg["back_roi"], dtype=np.int32)
+        log.info(f"Back zone calibrated ({len(back_roi_np)} verts) — over-net veto active")
+    else:
+        log.info("No back_roi calibrated — over-net veto disabled (re-run --calibrate to add)")
+
+    # Build the combined mask: net interior + approach zone + back zone (if present).
     # We also include a thin band ON the line itself to ensure no gap if the
     # two polygons don't quite meet (numerical edge case).
     cv2.fillPoly(detection_mask, [net_roi_np], 255)
     cv2.fillPoly(detection_mask, [approach_poly], 255)
     cv2.line(detection_mask, line_a, line_b, 255, thickness=10)
+    if back_roi_np is not None:
+        cv2.fillPoly(detection_mask, [back_roi_np], 255)
 
     # Pre-compute the scaled-down detection mask + dimensions so we don't
     # rebuild them every frame.
@@ -1351,13 +1421,67 @@ def run_detector(cfg: dict, ws: "SIOClient", debug: bool, log: logging.Logger,
 
             tracks = tracker.update(detections, now)
 
-            # ---- Goal logic ----
+            # ---- Pending goal resolution ----
+            # Runs every frame while a crossing is being confirmed.
+            if state.pending_goal_msg is not None:
+                # Back-zone veto: any track in back_roi means the puck went over
+                if not state.pending_goal_cancelled and back_roi_np is not None:
+                    for tr in tracks:
+                        px, py = tr.position
+                        if cv2.pointPolygonTest(back_roi_np, (float(px), float(py)), False) >= 0:
+                            state.pending_goal_cancelled = True
+                            log.info(f"GOAL_CANCELLED track={tr.id} entered back zone (puck went over)")
+                            break
+
+                if not state.pending_goal_cancelled:
+                    # Check whether any track is inside the net
+                    for tr in tracks:
+                        px, py = tr.position
+                        if cv2.pointPolygonTest(net_roi_np, (float(px), float(py)), False) >= 0:
+                            state.pending_goal_ever_in_net = True
+                            # Early confirm: speed dropped to a fraction of crossing speed
+                            vx, vy = tr.velocity
+                            speed = (vx * vx + vy * vy) ** 0.5
+                            threshold = state.pending_goal_crossing_speed * cfg["goal_speed_confirm_fraction"]
+                            if speed < threshold:
+                                log.info(f"GOAL_CONFIRMED early track={tr.id} "
+                                         f"speed={speed:.0f} < {threshold:.0f} px/s (speed drop)")
+                                _send(state.pending_goal_msg)
+                                state.last_goal_emit = now
+                                if not state.always_on:
+                                    state.armed_until = 0.0
+                                    state.pending_shot_ts = None
+                                state.pending_goal_msg = None
+                                break
+
+                # Window expiry
+                if state.pending_goal_msg is not None and now >= state.pending_goal_until:
+                    if not state.pending_goal_cancelled and state.pending_goal_ever_in_net:
+                        log.info("GOAL_CONFIRMED (window expired, puck was in net)")
+                        _send(state.pending_goal_msg)
+                        state.last_goal_emit = now
+                        if not state.always_on:
+                            state.armed_until = 0.0
+                            state.pending_shot_ts = None
+                    else:
+                        reason = "back_zone_veto" if state.pending_goal_cancelled else "puck_not_in_net"
+                        log.info(f"GOAL_CANCELLED (window expired, reason={reason})")
+                        # In armed mode emit no_goal since the shot window is also done
+                        if not state.always_on and state.pending_shot_ts is not None:
+                            _send({"type": "no_goal", "shot_ts": state.pending_shot_ts,
+                                   "reason": reason})
+                            state.armed_until = 0.0
+                            state.pending_shot_ts = None
+                    state.pending_goal_msg = None
+                    state.pending_goal_until = 0.0
+                    state.pending_goal_crossing_speed = 0.0
+                    state.pending_goal_ever_in_net = False
+                    state.pending_goal_cancelled = False
+
+            # ---- Goal line crossing detection ----
             looking = state.always_on or (now < state.armed_until)
-            if looking:
+            if looking and state.pending_goal_msg is None:
                 for tr in tracks:
-                    # Require the track to have been seen consistently before
-                    # we trust it - filters out single-frame flickers from
-                    # MOG2 fragmentation.
                     if tr.hits < cfg["min_track_hits"]:
                         continue
                     if tr.crossed or len(tr.history) < 2:
@@ -1368,26 +1492,30 @@ def run_detector(cfg: dict, ws: "SIOClient", debug: bool, log: logging.Logger,
                         if now - state.last_goal_emit < cfg["goal_cooldown_seconds"]:
                             continue
                         tr.crossed = True
-                        state.last_goal_emit = now
                         vx, vy = tr.velocity
                         speed_px_s = (vx * vx + vy * vy) ** 0.5
-                        log.info(f"GOAL track={tr.id} speed_px_s={speed_px_s:.0f} "
-                                 f"shot_ts={state.pending_shot_ts}")
-                        _send({
+                        confirm_s = cfg["goal_confirm_ms"] / 1000.0
+                        log.info(f"GOAL_PENDING track={tr.id} speed_px_s={speed_px_s:.0f} "
+                                 f"shot_ts={state.pending_shot_ts} confirm_window={cfg['goal_confirm_ms']}ms")
+                        state.pending_goal_msg = {
                             "type": "goal",
                             "track_id": tr.id,
                             "speed_px_s": round(speed_px_s, 1),
                             "shot_ts": state.pending_shot_ts,
                             "mode": "always_on" if state.always_on else "armed",
-                        })
-                        # Disarm after a goal in armed mode
-                        if not state.always_on:
-                            state.armed_until = 0.0
-                            state.pending_shot_ts = None
+                        }
+                        state.pending_goal_until = now + confirm_s
+                        state.pending_goal_crossing_speed = speed_px_s
+                        state.pending_goal_ever_in_net = False
+                        state.pending_goal_cancelled = False
+                        break  # one pending goal at a time
 
             # ---- Armed-window expiration -> emit explicit no_goal ----
+            # Skip if a pending goal is still being confirmed — it will emit
+            # no_goal on cancellation if needed.
             if (not state.always_on
                     and state.pending_shot_ts is not None
+                    and state.pending_goal_msg is None
                     and now >= state.armed_until
                     and state.armed_until != 0.0):
                 log.info(f"NO_GOAL shot_ts={state.pending_shot_ts} (armed window expired)")
@@ -1434,7 +1562,7 @@ def run_detector(cfg: dict, ws: "SIOClient", debug: bool, log: logging.Logger,
             if debug:
                 draw_debug(frame, fg, tracks, debug_contours, cfg,
                            line_a, line_b, net_roi_np, approach_poly,
-                           state, fps_smoothed, now)
+                           state, fps_smoothed, now, back_roi_np)
 
                 # Flash a big GOAL banner if we're within the flash window of
                 # the last detected goal. Compares to state.last_goal_emit which
@@ -1551,14 +1679,24 @@ def _draw_goal_flash(img) -> None:
 
 
 def draw_debug(frame, fg, tracks, debug_contours, cfg,
-               line_a, line_b, net_roi_np, approach_poly, state, fps, now):
+               line_a, line_b, net_roi_np, approach_poly, state, fps, now,
+               back_roi_np=None):
     # Static overlays:
+    #   - approach zone in cyan (watch zone in front of the goal line)
     #   - net ROI in green (where pucks count as IN)
-    #   - approach zone in yellow (watch zone in front of the goal line)
+    #   - back zone in orange (over-net veto region)
     #   - goal line in red (the actual line to cross)
     cv2.polylines(frame, [approach_poly], True, (0, 220, 220), 1)
     cv2.polylines(frame, [net_roi_np], True, (0, 255, 0), 1)
+    if back_roi_np is not None:
+        cv2.polylines(frame, [back_roi_np], True, (0, 128, 255), 1)
     cv2.line(frame, line_a, line_b, (0, 0, 255), 2)
+
+    # Pending goal indicator
+    if state.pending_goal_msg is not None:
+        color = (0, 50, 200) if state.pending_goal_cancelled else (0, 200, 255)
+        label = "GOAL CANCELLED" if state.pending_goal_cancelled else "CONFIRMING GOAL..."
+        _draw_label(frame, label, (10, 80), color, scale=0.7, thickness=2)
 
     # Color scheme:
     #   passing contours (within puck size range): cyan box, cyan label

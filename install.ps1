@@ -247,6 +247,7 @@ $UvArgs = "run --project `"$RepoRoot`" python `"$RepoRoot\goal_detector.py`" --s
 & $NssmPath set        $ServiceName AppStdoutCreationDisposition 4
 & $NssmPath set        $ServiceName AppStderrCreationDisposition 4
 & $NssmPath set        $ServiceName AppRotateFiles             1
+& $NssmPath set        $ServiceName AppRotateOnline            1
 & $NssmPath set        $ServiceName AppRotateBytes             10485760
 & $NssmPath set        $ServiceName Description                "HHOF Goalie Simulator - goal detector ($NetId)"
 & $NssmPath set        $ServiceName Start                      SERVICE_AUTO_START
@@ -280,6 +281,7 @@ if ($adminExists) {
 & $NssmPath set        $AdminServiceName AppStdoutCreationDisposition 4
 & $NssmPath set        $AdminServiceName AppStderrCreationDisposition 4
 & $NssmPath set        $AdminServiceName AppRotateFiles             1
+& $NssmPath set        $AdminServiceName AppRotateOnline            1
 & $NssmPath set        $AdminServiceName AppRotateBytes             10485760
 $CalibTaskName = "hhof-calibrate-$NetNum"
 & $NssmPath set        $AdminServiceName AppEnvironmentExtra        "GOAL_DETECTOR_SERVICE_NAME=$ServiceName" "UV_PATH=$UvPath" "NSSM_PATH=$NssmPath" "CALIBRATE_TASK_NAME=$CalibTaskName"

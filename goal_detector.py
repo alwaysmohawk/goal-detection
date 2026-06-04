@@ -1077,6 +1077,7 @@ class DetectorState:
     pending_goal_crossing_speed: float = 0.0
     pending_goal_ever_in_net: bool = False
     pending_goal_cancelled: bool = False
+    debug_crossing_t: float = 0.0  # time of last crossing regardless of armed state (debug only)
 
 
 def run_detector(cfg: dict, ws: "SIOClient", debug: bool, log: logging.Logger,
@@ -1517,6 +1518,20 @@ def run_detector(cfg: dict, ws: "SIOClient", debug: bool, log: logging.Logger,
                         state.pending_goal_cancelled = False
                         break  # one pending goal at a time
 
+            # ---- Debug crossing detection (fires regardless of armed state) ----
+            if debug:
+                for tr in tracks:
+                    if tr.hits < cfg["min_track_hits"]:
+                        continue
+                    if tr.crossed or len(tr.history) < 2:
+                        continue
+                    _, px, py = tr.history[-2]
+                    _, cx, cy = tr.history[-1]
+                    if crossed_into_net((px, py), (cx, cy), line_a, line_b, net_centroid):
+                        tr.crossed = True
+                        state.debug_crossing_t = now
+                        break
+
             # ---- Armed-window expiration -> emit explicit no_goal ----
             # Skip if a pending goal is still being confirmed — it will emit
             # no_goal on cancellation if needed.
@@ -1577,6 +1592,8 @@ def run_detector(cfg: dict, ws: "SIOClient", debug: bool, log: logging.Logger,
                 flash_dur = cfg.get("debug_goal_flash_seconds", 0.5)
                 if state.last_goal_emit > 0 and (now - state.last_goal_emit) < flash_dur:
                     _draw_goal_flash(frame)
+                if state.debug_crossing_t > 0 and (now - state.debug_crossing_t) < flash_dur:
+                    _draw_would_score_flash(frame)
 
                 # Scale down the display to reduce imshow cost on the Pi. The
                 # actual frame buffer is unchanged - only the displayed copy
@@ -1683,6 +1700,28 @@ def _draw_goal_flash(img) -> None:
     cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 0), 3)
     cv2.putText(img, text, (x1 + pad, y1 + pad + th),
                 font, scale, (255, 255, 255), thickness, cv2.LINE_AA)
+
+
+def _draw_would_score_flash(img) -> None:
+    """Yellow 'WOULD SCORE' banner shown when a crossing is detected but the
+    detector is not currently armed/looking. Sits below the GOAL flash position."""
+    w = img.shape[1]
+    text = "WOULD SCORE"
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    scale = w / 640.0
+    thickness = max(2, int(scale * 2))
+    (tw, th), baseline = cv2.getTextSize(text, font, scale, thickness)
+    pad = int(scale * 10)
+
+    x2 = w - pad
+    y1 = pad + int(scale * 80)  # below the GOAL flash position
+    x1 = x2 - tw - 2 * pad
+    y2 = y1 + th + baseline + 2 * pad
+
+    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 200, 220), -1)  # amber/yellow
+    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 0), 3)
+    cv2.putText(img, text, (x1 + pad, y1 + pad + th),
+                font, scale, (0, 0, 0), thickness, cv2.LINE_AA)
 
 
 def draw_debug(frame, fg, tracks, debug_contours, cfg,

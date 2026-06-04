@@ -259,6 +259,7 @@
       <div class="actions">
         <button class="action" id="btnRestart">Restart detector service</button>
         <button class="action secondary" id="btnCalibrate">Run calibration</button>
+        <button class="action secondary" id="btnToggleMode" disabled>Mode: —</button>
       </div>
     </div>
 
@@ -457,6 +458,16 @@ function updateStats(msg) {
 
   document.getElementById("statFps").className = "stat-value " + (msg.fps > 80 ? "good" : msg.fps > 40 ? "warn" : "bad");
   document.getElementById("statArmed").className = "stat-value " + (msg.armed ? "warn" : "");
+
+  const btn = document.getElementById("btnToggleMode");
+  if (msg.mode === "always_on") {
+    btn.textContent = "Switch to Armed-only";
+    btn.dataset.next = "armed";
+  } else {
+    btn.textContent = "Switch to Always-on";
+    btn.dataset.next = "always_on";
+  }
+  btn.disabled = false;
 }
 
 function clearStats() {
@@ -633,6 +644,24 @@ document.getElementById("btnCalibrate").addEventListener("click", async () => {
       const body = await r.json();
       showToast("Error: " + (body.error || r.status), true);
     }
+  } catch (e) {
+    showToast("Request failed: " + e, true);
+  }
+});
+
+document.getElementById("btnToggleMode").addEventListener("click", async () => {
+  const btn = document.getElementById("btnToggleMode");
+  const mode = btn.dataset.next;
+  if (!mode) return;
+  try {
+    const r = await fetch("/api/set-mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    });
+    const body = await r.json();
+    if (!r.ok) showToast("Error: " + (body.error || r.status), true);
+    else showToast("Mode set to " + (mode === "always_on" ? "always-on" : "armed-only"));
   } catch (e) {
     showToast("Request failed: " + e, true);
   }

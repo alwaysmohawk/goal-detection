@@ -210,6 +210,25 @@ const httpServer = http.createServer(async (req, res) => {
         return;
     }
 
+    // --- POST /api/set-mode ---
+    if (req.method === "POST" && url === "/api/set-mode") {
+        try {
+            const body = await readBody(req);
+            const { mode } = JSON.parse(body);
+            if (mode !== "always_on" && mode !== "armed") {
+                jsonResponse(res, 400, { error: "mode must be 'always_on' or 'armed'" }); return;
+            }
+            if (!detectorSocket || detectorSocket.readyState !== WebSocket.OPEN) {
+                jsonResponse(res, 503, { error: "detector not connected" }); return;
+            }
+            detectorSocket.send(JSON.stringify({ type: "set_mode", mode }));
+            jsonResponse(res, 200, { ok: true });
+        } catch (e) {
+            jsonResponse(res, 400, { error: String(e) });
+        }
+        return;
+    }
+
     // --- POST /api/status ---
     if (req.method === "GET" && url === "/api/status") {
         jsonResponse(res, 200, {

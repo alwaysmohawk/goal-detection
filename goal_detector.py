@@ -183,26 +183,25 @@ def setup_logging(level: str) -> logging.Logger:
 # Calibration
 # ---------------------------------------------------------------------------
 
-def _draw_banner(img, step_num: int, step_total: int, title: str, instruction: str) -> None:
-    """Draw a solid black banner at the top of `img` with step + instruction text.
+_BANNER_H = 70  # height of the calibration step banner in pixels
 
-    Always-readable regardless of underlying frame content.
+
+def _draw_banner(img, step_num: int, step_total: int, title: str, instruction: str,
+                 y_start: int = 0) -> None:
+    """Draw a solid black step banner in the `_BANNER_H`-pixel strip starting at `y_start`.
+
+    Pass y_start = frame_height to draw below the frame content so nothing is obscured.
     """
-    h, w = img.shape[:2]
-    banner_h = 70
-    # Solid black background
-    cv2.rectangle(img, (0, 0), (w, banner_h), (0, 0, 0), -1)
-    # Thin accent line at bottom of banner
-    cv2.line(img, (0, banner_h), (w, banner_h), (0, 220, 255), 2)
-    # Step counter (left)
-    cv2.putText(img, f"STEP {step_num}/{step_total}", (12, 26),
+    w = img.shape[1]
+    y0, y1 = y_start, y_start + _BANNER_H
+    cv2.rectangle(img, (0, y0), (w, y1), (0, 0, 0), -1)
+    cv2.line(img, (0, y0), (w, y0), (0, 220, 255), 2)  # accent line at top of banner
+    cv2.putText(img, f"STEP {step_num}/{step_total}", (12, y0 + 26),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 255), 2)
-    # Title (left, second line)
-    cv2.putText(img, title, (12, 56),
+    cv2.putText(img, title, (12, y0 + 56),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-    # Instruction (right side)
     (tw, _), _ = cv2.getTextSize(instruction, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
-    cv2.putText(img, instruction, (max(12, w - tw - 12), 42),
+    cv2.putText(img, instruction, (max(12, w - tw - 12), y0 + 42),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
 
 
@@ -236,15 +235,15 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
             log.warning("Camera not ready yet, retrying...")
             time.sleep(0.05)
             continue
-        _draw_banner(f, 1, 5, "Capture reference frame",
-                     "[SPACE] capture    [Q] quit")
-        cv2.imshow(CALIB_WINDOW, f)
+        fh, fw = f.shape[:2]
+        canvas = np.zeros((fh + _BANNER_H, fw, 3), dtype=np.uint8)
+        canvas[:fh] = f
+        _draw_banner(canvas, 1, 5, "Capture reference frame",
+                     "[SPACE] capture    [Q] quit", y_start=fh)
+        cv2.imshow(CALIB_WINDOW, canvas)
         k = cv2.waitKey(1) & 0xFF
         if k == ord(' '):
             frame = f.copy()
-            # Clear the banner from the frozen frame so subsequent phases
-            # redraw cleanly without compositing old text underneath.
-            frame[:70, :] = 0
             break
         if k == ord('q'):
             cap.release()
@@ -252,8 +251,13 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
             return
     cap.release()
 
-    # `frame` is now the captured reference with the top 70px zeroed out
-    # so the banner can be redrawn fresh on every iteration of subsequent steps.
+    frame_h, frame_w = frame.shape[:2]
+
+    def _canvas(base):
+        """Frame in top rows, blank banner strip at bottom — nothing obscured."""
+        c = np.zeros((frame_h + _BANNER_H, frame_w, 3), dtype=np.uint8)
+        c[:frame_h] = base
+        return c
 
     # ============================================================
     # STEP 2/5 — goal line (2 points)
@@ -261,16 +265,14 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
     line_pts: list[tuple[int, int]] = []
 
     def on_line_click(event, x, y, flags, param):
-        # Ignore clicks inside the banner area
-        if event == cv2.EVENT_LBUTTONDOWN and y > 70 and len(line_pts) < 2:
+        if event == cv2.EVENT_LBUTTONDOWN and y < frame_h and len(line_pts) < 2:
             line_pts.append((x, y))
 
     cv2.setMouseCallback(CALIB_WINDOW, on_line_click)
     log.info("Step 2/5: click LEFT POST, then RIGHT POST on the goal line. Enter to confirm.")
 
     while True:
-        disp = frame.copy()
-        # Draw user input first, banner last (so banner is always on top)
+        disp = _canvas(frame)
         for i, p in enumerate(line_pts):
             cv2.circle(disp, p, 7, (0, 0, 255), -1)
             label = "L" if i == 0 else "R"
@@ -282,7 +284,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
         instr = (f"clicks: {len(line_pts)}/2    "
                  f"[ENTER] confirm    [R] reset    [Q] quit")
         title = "Click LEFT POST, then RIGHT POST on the goal line"
-        _draw_banner(disp, 2, 5, title, instr)
+        _draw_banner(disp, 2, 5, title, instr, y_start=frame_h)
         cv2.imshow(CALIB_WINDOW, disp)
         k = cv2.waitKey(20) & 0xFF
         if k == 13 and len(line_pts) == 2:  # Enter
@@ -299,17 +301,15 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
     poly_pts: list[tuple[int, int]] = []
 
     def on_poly_click(event, x, y, flags, param):
-        if event == cv2.EVENT_LBUTTONDOWN and y > 70:
+        if event == cv2.EVENT_LBUTTONDOWN and y < frame_h:
             poly_pts.append((x, y))
 
     cv2.setMouseCallback(CALIB_WINDOW, on_poly_click)
     log.info("Step 3/5: click 4+ points around the inside of the net. Enter when done.")
 
     while True:
-        disp = frame.copy()
-        # Draw the established goal line in red
+        disp = _canvas(frame)
         cv2.line(disp, tuple(line_pts[0]), tuple(line_pts[1]), (0, 0, 255), 2)
-        # Draw the polygon-in-progress in green
         for p in poly_pts:
             cv2.circle(disp, p, 5, (0, 255, 0), -1)
         if len(poly_pts) >= 2:
@@ -324,7 +324,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
                  f"[ENTER]{'confirm' if ready else ' need more pts'}    "
                  f"[R] reset    [Q] quit")
         title = "Click around the inside of the net (where pucks count as IN)"
-        _draw_banner(disp, 3, 5, title, instr)
+        _draw_banner(disp, 3, 5, title, instr, y_start=frame_h)
         cv2.imshow(CALIB_WINDOW, disp)
         k = cv2.waitKey(20) & 0xFF
         if k == 13 and ready:
@@ -341,21 +341,19 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
     approach_pts: list[tuple[int, int]] = []
 
     def on_approach_click(event, x, y, flags, param):
-        if event == cv2.EVENT_LBUTTONDOWN and y > 70:
+        if event == cv2.EVENT_LBUTTONDOWN and y < frame_h:
             approach_pts.append((x, y))
 
     cv2.setMouseCallback(CALIB_WINDOW, on_approach_click)
     log.info("Step 4/5: click 4+ points around the area in FRONT of the goal. Enter when done.")
 
     while True:
-        disp = frame.copy()
-        # Show the goal line and net ROI for reference
+        disp = _canvas(frame)
         cv2.line(disp, tuple(line_pts[0]), tuple(line_pts[1]), (0, 0, 255), 2)
         overlay = disp.copy()
         cv2.fillPoly(overlay, [np.array(poly_pts)], (0, 255, 0))
         disp = cv2.addWeighted(overlay, 0.15, disp, 0.85, 0)
         cv2.polylines(disp, [np.array(poly_pts)], True, (0, 255, 0), 1)
-        # Draw approach zone in-progress in cyan
         for p in approach_pts:
             cv2.circle(disp, p, 5, (0, 220, 220), -1)
         if len(approach_pts) >= 2:
@@ -370,7 +368,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
                  f"[ENTER]{'confirm' if ready else ' need more pts'}    "
                  f"[R] reset    [Q] quit")
         title = "Click around the area IN FRONT of the goal (approach / shooting zone)"
-        _draw_banner(disp, 4, 5, title, instr)
+        _draw_banner(disp, 4, 5, title, instr, y_start=frame_h)
         cv2.imshow(CALIB_WINDOW, disp)
         k = cv2.waitKey(20) & 0xFF
         if k == 13 and ready:
@@ -387,15 +385,14 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
     back_pts: list[tuple[int, int]] = []
 
     def on_back_click(event, x, y, flags, param):
-        if event == cv2.EVENT_LBUTTONDOWN and y > 70:
+        if event == cv2.EVENT_LBUTTONDOWN and y < frame_h:
             back_pts.append((x, y))
 
     cv2.setMouseCallback(CALIB_WINDOW, on_back_click)
     log.info("Step 5/5: click 4+ points around the BACK ZONE (where puck lands if it goes over the net). Enter when done.")
 
     while True:
-        disp = frame.copy()
-        # Show goal line, net ROI and approach zone for reference
+        disp = _canvas(frame)
         cv2.line(disp, tuple(line_pts[0]), tuple(line_pts[1]), (0, 0, 255), 2)
         overlay = disp.copy()
         cv2.fillPoly(overlay, [np.array(poly_pts)], (0, 255, 0))
@@ -403,7 +400,6 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
         disp = cv2.addWeighted(overlay, 0.15, disp, 0.85, 0)
         cv2.polylines(disp, [np.array(poly_pts)], True, (0, 255, 0), 1)
         cv2.polylines(disp, [np.array(approach_pts)], True, (0, 220, 220), 1)
-        # Draw back zone in-progress in orange
         for p in back_pts:
             cv2.circle(disp, p, 5, (0, 128, 255), -1)
         if len(back_pts) >= 2:
@@ -418,7 +414,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
                  f"[ENTER]{'confirm' if ready else ' need more pts'}    "
                  f"[R] reset    [Q] quit")
         title = "Click around the BACK ZONE (behind the net — puck here = went over, not in)"
-        _draw_banner(disp, 5, 5, title, instr)
+        _draw_banner(disp, 5, 5, title, instr, y_start=frame_h)
         cv2.imshow(CALIB_WINDOW, disp)
         k = cv2.waitKey(20) & 0xFF
         if k == 13 and ready:

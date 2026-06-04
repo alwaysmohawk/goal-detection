@@ -1298,13 +1298,20 @@ def run_detector(cfg: dict, ws: "SIOClient", debug: bool, log: logging.Logger,
 
             consecutive_fails = 0
 
-            # ---- Process inbound WS messages ----
+            # ---- Process inbound WS messages (game server + admin panel) ----
             try:
                 while True:
                     msg = ws.recv_queue.get_nowait()
                     handle_inbound(msg, state, cfg, log)
             except queue.Empty:
                 pass
+            if admin_ws is not None:
+                try:
+                    while True:
+                        msg = admin_ws.recv_queue.get_nowait()
+                        handle_inbound(msg, state, cfg, log)
+                except queue.Empty:
+                    pass
 
             # ---- Detection ----
             # Downscale before CV. All MOG2/threshold/morph/contour ops run at

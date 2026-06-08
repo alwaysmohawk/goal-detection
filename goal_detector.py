@@ -535,7 +535,20 @@ class LucidCapture:
         # inter-packet delay overhead alone limits fps to ~50-60fps. At 9000
         # bytes there are ~6x fewer packets per frame so that overhead drops
         # to nearly nothing and the camera can hit its hardware maximum.
-        nodemap['GevSCPSPacketSize'].value = 9000
+        # Requires jumbo frames (MTU 9000) enabled on the GigE NIC. Falls back
+        # to 1500 with a warning if the NIC doesn't support it yet.
+        try:
+            nodemap['GevSCPSPacketSize'].value = 9000
+        except Exception as e:
+            log.warning(
+                f"Could not set GevSCPSPacketSize to 9000 (jumbo frames): {e}\n"
+                "  FPS will be limited (~50-60fps). To fix: Device Manager → "
+                "GigE NIC → Properties → Advanced → Jumbo Packet → 9014 bytes"
+            )
+            try:
+                nodemap['GevSCPSPacketSize'].value = 1500
+            except Exception:
+                pass
 
         nodemap['PixelFormat'].value = 'Mono8'
         nodemap['Width'].value = cfg['frame_width']

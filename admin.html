@@ -313,8 +313,10 @@ const CONFIG_SCHEMA = [
   { section: "Goal Logic" },
   { key: "armed_window_seconds",  label: "Armed window (s)",   type: "number",  restart: LIVE },
   { key: "goal_cooldown_seconds", label: "Goal cooldown (s)",  type: "number",  restart: LIVE },
-  { key: "always_on_default",     label: "Always on (default)",type: "boolean", restart: LIVE },
-  { key: "require_approach_zone", label: "Require approach zone",type: "boolean", restart: LIVE },
+  { key: "always_on_default",          label: "Always on (default)",       type: "boolean", restart: LIVE },
+  { key: "require_approach_zone",      label: "Require approach zone",      type: "boolean", restart: LIVE },
+  { key: "goal_confirm_ms",            label: "Goal confirm window (ms)",   type: "number",  restart: LIVE },
+  { key: "goal_speed_confirm_fraction",label: "Speed drop confirm fraction",type: "number",  restart: LIVE },
   { key: "log_level",             label: "Log level",           type: "select",  restart: LIVE,
     options: ["DEBUG","INFO","WARNING","ERROR"] },
 

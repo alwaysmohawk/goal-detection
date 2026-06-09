@@ -144,7 +144,7 @@ DEFAULT_CONFIG = {
     # console. Useful for tracking down false negatives ("why didn't that
     # puck get detected?"). To avoid drowning in noise, only contours within
     # `verbose_contour_log_margin` of the area thresholds are logged - so a
-    # 2-pixel speckle won't spam the log, but a 2800px contour with a
+    # 2-pixel speckle won't spam the log, but a 2800px contou r with a
     # 3000px minimum will.
     "verbose_contour_logging": False,
     "verbose_contour_log_margin": 0.5, # log rejected contours whose area is
@@ -1607,7 +1607,7 @@ def run_detector(cfg: dict, ws: "SIOClient", debug: bool, log: logging.Logger,
                     avg_cap = (t_capture_acc / t_frames) * 1000
                     avg_cv = (t_cv_acc / t_frames) * 1000
                     avg_disp = (t_display_acc / t_frames) * 1000
-                    log.info(
+                    log.debug(
                         f"fps={fps_smoothed:.1f}  "
                         f"capture={avg_cap:.1f}ms  "
                         f"cv={avg_cv:.1f}ms  "

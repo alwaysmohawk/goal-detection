@@ -130,6 +130,7 @@ DEFAULT_CONFIG = {
     "always_on_default": False,        # start in armed-mode by default
     "goal_confirm_ms": 200,            # ms after crossing to confirm puck stayed in net
     "goal_speed_confirm_fraction": 0.25,  # confirm early if speed drops to this fraction of crossing speed
+    "require_approach_zone": True,     # if False, goals also fire when a puck appears only inside the net (5-hole with full occlusion)
     "log_level": "INFO",
 
     # ---- Debug display ----
@@ -1527,6 +1528,36 @@ def run_detector(cfg: dict, ws: "SIOClient", debug: bool, log: logging.Logger,
                         state.pending_goal_cancelled = False
                         break  # one pending goal at a time
 
+            # ---- Net-appearance goal (require_approach_zone = False) ----
+            # When approach zone is not required, a confirmed track whose entire
+            # history is inside the net ROI counts as a goal. Handles 5-hole where
+            # the puck is fully occluded before the line and never seen approaching.
+            if looking and not cfg.get("require_approach_zone", True) and state.pending_goal_msg is None:
+                for tr in tracks:
+                    if tr.hits < cfg["min_track_hits"] or tr.crossed:
+                        continue
+                    if now - state.last_goal_emit < cfg["goal_cooldown_seconds"]:
+                        continue
+                    if all(cv2.pointPolygonTest(net_roi_np, (float(h[1]), float(h[2])), False) >= 0
+                           for h in tr.history):
+                        tr.crossed = True
+                        vx, vy = tr.velocity
+                        speed_px_s = (vx * vx + vy * vy) ** 0.5
+                        log.info(f"GOAL (net appearance) track={tr.id} speed={speed_px_s:.0f}px/s "
+                                 f"shot_ts={state.pending_shot_ts}")
+                        _send({
+                            "type": "goal",
+                            "track_id": tr.id,
+                            "speed_px_s": round(speed_px_s, 1),
+                            "shot_ts": state.pending_shot_ts,
+                            "mode": "always_on" if state.always_on else "armed",
+                        })
+                        state.last_goal_emit = now
+                        if not state.always_on:
+                            state.armed_until = 0.0
+                            state.pending_shot_ts = None
+                        break
+
             # ---- Debug crossing detection (fires regardless of armed state) ----
             if debug:
                 for tr in tracks:
@@ -1540,6 +1571,15 @@ def run_detector(cfg: dict, ws: "SIOClient", debug: bool, log: logging.Logger,
                         tr.crossed = True
                         state.debug_crossing_t = now
                         break
+                if not cfg.get("require_approach_zone", True):
+                    for tr in tracks:
+                        if tr.hits < cfg["min_track_hits"] or tr.crossed:
+                            continue
+                        if all(cv2.pointPolygonTest(net_roi_np, (float(h[1]), float(h[2])), False) >= 0
+                               for h in tr.history):
+                            tr.crossed = True
+                            state.debug_crossing_t = now
+                            break
 
             # ---- Armed-window expiration -> emit explicit no_goal ----
             # Skip if a pending goal is still being confirmed — it will emit

@@ -314,6 +314,7 @@ const CONFIG_SCHEMA = [
   { key: "armed_window_seconds",  label: "Armed window (s)",   type: "number",  restart: LIVE },
   { key: "goal_cooldown_seconds", label: "Goal cooldown (s)",  type: "number",  restart: LIVE },
   { key: "always_on_default",     label: "Always on (default)",type: "boolean", restart: LIVE },
+  { key: "require_approach_zone", label: "Require approach zone",type: "boolean", restart: LIVE },
   { key: "log_level",             label: "Log level",           type: "select",  restart: LIVE,
     options: ["DEBUG","INFO","WARNING","ERROR"] },
 

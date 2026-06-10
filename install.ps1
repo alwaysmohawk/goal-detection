@@ -42,6 +42,13 @@ $UseGigE = Read-Host "Using Lucid GigE camera? (y/n)  [y]"
 if (-not $UseGigE) { $UseGigE = "y" }
 $UseGigE = $UseGigE.Trim().ToLower() -eq "y"
 
+$LucidSerialSuffix = $null
+if ($UseGigE) {
+    $s = Read-Host "Last 3 digits of camera serial number (label on camera body) [skip]"
+    $s = $s.Trim()
+    if ($s) { $LucidSerialSuffix = $s }
+}
+
 # -- Install uv -----------------------------------------------------------
 
 Write-Step "Checking uv..."
@@ -335,13 +342,20 @@ Write-Step "Checking calibration..."
 
 $Calibrated = $false
 $ConfigPath = "$RepoRoot\config.json"
+$cfg = $null
 if (Test-Path $ConfigPath) {
-    try {
-        $cfg = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-        if ($cfg.goal_line -and $cfg.net_roi -and $cfg.approach_roi) {
-            $Calibrated = $true
-        }
-    } catch {}
+    try { $cfg = Get-Content $ConfigPath -Raw | ConvertFrom-Json } catch {}
+}
+if (-not $cfg) { $cfg = [PSCustomObject]@{} }
+
+if ($LucidSerialSuffix) {
+    $cfg | Add-Member -NotePropertyName lucid_serial -NotePropertyValue $LucidSerialSuffix -Force
+    $cfg | ConvertTo-Json -Depth 10 | Set-Content $ConfigPath -Encoding utf8
+    Write-Ok "Camera serial suffix '$LucidSerialSuffix' written to config.json"
+}
+
+if ($cfg.goal_line -and $cfg.net_roi -and $cfg.approach_roi) {
+    $Calibrated = $true
 }
 
 if ($Calibrated) {

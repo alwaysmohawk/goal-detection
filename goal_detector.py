@@ -502,7 +502,13 @@ class LucidCapture:
 
         target_serial = cfg.get("lucid_serial")
         if target_serial:
-            match = [d for d in device_infos if str(d.get("serial", "")) == str(target_serial)]
+            target_str = str(target_serial).strip()
+            # Short value (≤4 chars) = last-N-digits suffix supplied by installer prompt.
+            # Full serial = exact match.
+            if len(target_str) <= 4:
+                match = [d for d in device_infos if str(d.get("serial", "")).endswith(target_str)]
+            else:
+                match = [d for d in device_infos if str(d.get("serial", "")) == target_str]
             if not match:
                 serials = [d.get("serial", "?") for d in device_infos]
                 log.error(f"lucid_serial={target_serial!r} not found. "

@@ -315,6 +315,7 @@ const CONFIG_SCHEMA = [
   { key: "goal_cooldown_seconds", label: "Goal cooldown (s)",  type: "number",  restart: LIVE },
   { key: "always_on_default",          label: "Always on (default)",       type: "boolean", restart: LIVE },
   { key: "require_approach_zone",      label: "Require approach zone",      type: "boolean", restart: LIVE },
+  { key: "goalie_roi_enabled",         label: "Goalie zone suppression",    type: "boolean", restart: LIVE },
   { key: "goal_confirm_ms",            label: "Goal confirm window (ms)",   type: "number",  restart: LIVE },
   { key: "goal_speed_confirm_fraction",label: "Speed drop confirm fraction",type: "number",  restart: LIVE },
   { key: "log_level",             label: "Log level",           type: "select",  restart: LIVE,
@@ -331,7 +332,8 @@ const CONFIG_SCHEMA = [
   { key: "goal_line",    label: "Goal line",     type: "readonly" },
   { key: "net_roi",      label: "Net ROI",       type: "readonly" },
   { key: "approach_roi", label: "Approach ROI",  type: "readonly" },
-  { key: "back_roi",     label: "Back zone ROI", type: "readonly" },
+  { key: "back_roi",     label: "Back zone ROI",   type: "readonly" },
+  { key: "goalie_roi",   label: "Goalie zone ROI", type: "readonly" },
 
   { section: "Camera" },
   { key: "source",           label: "Source index",        type: "number",  restart: RESTART },

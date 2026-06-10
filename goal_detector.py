@@ -84,6 +84,8 @@ DEFAULT_CONFIG = {
     "net_roi": None,                   # [[x,y], ...] polygon - set via --calibrate
     "approach_roi": None,              # [[x,y], ...] polygon in front of goal - set via --calibrate
     "back_roi": None,                  # [[x,y], ...] polygon behind net - puck here means it went over, not in
+    "goalie_roi": None,                # [[x,y], ...] polygon where goalie stands - new tracks born here are suppressed
+    "goalie_roi_enabled": True,        # toggle birth suppression without recalibrating
 
     # ---- Detection ----
     "puck_min_area": 80,               # px^2 - applied to MERGED blob, not raw fragments
@@ -243,7 +245,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
         fh, fw = f.shape[:2]
         canvas = np.zeros((fh + _BANNER_H, fw, 3), dtype=np.uint8)
         canvas[:fh] = f
-        _draw_banner(canvas, 1, 5, "Capture reference frame",
+        _draw_banner(canvas, 1, 6,"Capture reference frame",
                      "[SPACE] capture    [Q] quit", y_start=fh)
         cv2.imshow(CALIB_WINDOW, canvas)
         k = cv2.waitKey(1) & 0xFF
@@ -289,7 +291,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
         instr = (f"clicks: {len(line_pts)}/2    "
                  f"[ENTER] confirm    [R] reset    [Q] quit")
         title = "Click LEFT POST, then RIGHT POST on the goal line"
-        _draw_banner(disp, 2, 5, title, instr, y_start=frame_h)
+        _draw_banner(disp, 2, 6, title, instr, y_start=frame_h)
         cv2.imshow(CALIB_WINDOW, disp)
         k = cv2.waitKey(20) & 0xFF
         if k == 13 and len(line_pts) == 2:  # Enter
@@ -329,7 +331,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
                  f"[ENTER]{'confirm' if ready else ' need more pts'}    "
                  f"[R] reset    [Q] quit")
         title = "Click around the inside of the net (where pucks count as IN)"
-        _draw_banner(disp, 3, 5, title, instr, y_start=frame_h)
+        _draw_banner(disp, 3, 6, title, instr, y_start=frame_h)
         cv2.imshow(CALIB_WINDOW, disp)
         k = cv2.waitKey(20) & 0xFF
         if k == 13 and ready:
@@ -373,7 +375,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
                  f"[ENTER]{'confirm' if ready else ' need more pts'}    "
                  f"[R] reset    [Q] quit")
         title = "Click around the area IN FRONT of the goal (approach / shooting zone)"
-        _draw_banner(disp, 4, 5, title, instr, y_start=frame_h)
+        _draw_banner(disp, 4, 6, title, instr, y_start=frame_h)
         cv2.imshow(CALIB_WINDOW, disp)
         k = cv2.waitKey(20) & 0xFF
         if k == 13 and ready:
@@ -419,7 +421,7 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
                  f"[ENTER]{'confirm' if ready else ' need more pts'}    "
                  f"[R] reset    [Q] quit")
         title = "Click around the BACK ZONE (behind the net — puck here = went over, not in)"
-        _draw_banner(disp, 5, 5, title, instr, y_start=frame_h)
+        _draw_banner(disp, 5, 6, title, instr, y_start=frame_h)
         cv2.imshow(CALIB_WINDOW, disp)
         k = cv2.waitKey(20) & 0xFF
         if k == 13 and ready:
@@ -430,12 +432,61 @@ def calibrate(cfg: dict, log: logging.Logger) -> None:
             cv2.destroyAllWindows()
             return
 
+    # ---- Step 6: Goalie zone (optional) ----
+    goalie_pts: list[tuple[int, int]] = []
+
+    def on_goalie_click(event, x, y, _flags, _param):
+        if event == cv2.EVENT_LBUTTONDOWN and y < frame_h:
+            goalie_pts.append((x, y))
+
+    cv2.setMouseCallback(CALIB_WINDOW, on_goalie_click)
+    log.info("Step 6/6 (optional): click 4+ points around the GOALIE ZONE "
+             "(where the goalie stands — new blobs born here will be ignored). "
+             "Press ENTER with no points to skip.")
+
+    while True:
+        disp = _canvas(frame)
+        cv2.line(disp, tuple(line_pts[0]), tuple(line_pts[1]), (0, 0, 255), 2)
+        overlay = disp.copy()
+        cv2.fillPoly(overlay, [np.array(poly_pts)], (0, 255, 0))
+        cv2.fillPoly(overlay, [np.array(approach_pts)], (0, 220, 220))
+        cv2.fillPoly(overlay, [np.array(back_pts)], (0, 128, 255))
+        disp = cv2.addWeighted(overlay, 0.15, disp, 0.85, 0)
+        cv2.polylines(disp, [np.array(poly_pts)], True, (0, 255, 0), 1)
+        cv2.polylines(disp, [np.array(approach_pts)], True, (0, 220, 220), 1)
+        cv2.polylines(disp, [np.array(back_pts)], True, (0, 128, 255), 1)
+        for p in goalie_pts:
+            cv2.circle(disp, p, 5, (255, 0, 255), -1)
+        if len(goalie_pts) >= 2:
+            cv2.polylines(disp, [np.array(goalie_pts)], False, (255, 0, 255), 2)
+        if len(goalie_pts) >= 3:
+            overlay2 = disp.copy()
+            cv2.fillPoly(overlay2, [np.array(goalie_pts)], (255, 0, 255))
+            disp = cv2.addWeighted(overlay2, 0.2, disp, 0.8, 0)
+
+        ready = len(goalie_pts) >= 4 or len(goalie_pts) == 0
+        instr = (f"points: {len(goalie_pts)}    "
+                 f"[ENTER] {'confirm' if len(goalie_pts) >= 4 else 'skip (no points)' if len(goalie_pts) == 0 else 'need 4+ pts'}    "
+                 f"[R] reset    [Q] quit")
+        title = "Click around the GOALIE ZONE (birth suppression) — or ENTER to skip"
+        _draw_banner(disp, 6, 6, title, instr, y_start=frame_h)
+        cv2.imshow(CALIB_WINDOW, disp)
+        k = cv2.waitKey(20) & 0xFF
+        if k == 13 and ready:
+            break
+        if k == ord('r'):
+            goalie_pts.clear()
+        if k == ord('q'):
+            cv2.destroyAllWindows()
+            return
+
     cv2.destroyAllWindows()
 
     cfg["goal_line"] = [list(p) for p in line_pts]
     cfg["net_roi"] = [list(p) for p in poly_pts]
     cfg["approach_roi"] = [list(p) for p in approach_pts]
     cfg["back_roi"] = [list(p) for p in back_pts]
+    cfg["goalie_roi"] = [list(p) for p in goalie_pts] if goalie_pts else None
     save_config(cfg)
     log.info(f"Calibration saved to {CONFIG_PATH}")
 
@@ -829,7 +880,8 @@ class SimpleTracker:
         self.max_dist = max_dist_px
         self.max_age = max_age_s
 
-    def update(self, detections: list[tuple[float, float]], t: float) -> list[Track]:
+    def update(self, detections: list[tuple[float, float]], t: float,
+               birth_exclusion_np=None) -> list[Track]:
         # Prune dead tracks
         for tid in list(self.tracks):
             if t - self.tracks[tid].last_seen > self.max_age:
@@ -855,9 +907,14 @@ class SimpleTracker:
                 tr.hits += 1
                 unmatched_dets.remove(best_idx)
 
-        # Spawn new tracks for leftover detections
+        # Spawn new tracks for leftover detections — skip any born inside the
+        # goalie zone (those are goalie body movement, not pucks).
+        # Existing tracks that travel INTO the goalie zone are unaffected.
         for i in unmatched_dets:
             x, y = detections[i]
+            if birth_exclusion_np is not None:
+                if cv2.pointPolygonTest(birth_exclusion_np, (float(x), float(y)), False) >= 0:
+                    continue
             tr = Track(id=self.next_id)
             tr.history.append((t, x, y))
             tr.last_seen = t
@@ -1220,6 +1277,17 @@ def run_detector(cfg: dict, ws: "SIOClient", debug: bool, log: logging.Logger,
     else:
         log.info("No back_roi calibrated — over-net veto disabled (re-run --calibrate to add)")
 
+    # Goalie zone: birth exclusion zone. New tracks whose first detection is
+    # inside this polygon are suppressed (goalie body movement). Tracks that
+    # originated outside and travel through are unaffected.
+    goalie_roi_np: Optional[np.ndarray] = None
+    if cfg.get("goalie_roi") and cfg.get("goalie_roi_enabled", True):
+        goalie_roi_np = np.array(cfg["goalie_roi"], dtype=np.int32)
+        log.info(f"Goalie zone calibrated ({len(goalie_roi_np)} verts) — birth suppression active")
+    else:
+        log.info("Goalie zone birth suppression disabled"
+                 + (" (re-run --calibrate to add)" if not cfg.get("goalie_roi") else " (goalie_roi_enabled=false)"))
+
     # Build the combined mask: net interior + approach zone + back zone (if present).
     # We also include a thin band ON the line itself to ensure no gap if the
     # two polygons don't quite meet (numerical edge case).
@@ -1447,7 +1515,7 @@ def run_detector(cfg: dict, ws: "SIOClient", debug: bool, log: logging.Logger,
 
             t_c = time.perf_counter()
 
-            tracks = tracker.update(detections, now)
+            tracks = tracker.update(detections, now, birth_exclusion_np=goalie_roi_np)
 
             # ---- Pending goal resolution ----
             # Runs every frame while a crossing is being confirmed.
@@ -1643,7 +1711,7 @@ def run_detector(cfg: dict, ws: "SIOClient", debug: bool, log: logging.Logger,
             if debug:
                 draw_debug(frame, fg, tracks, debug_contours, cfg,
                            line_a, line_b, net_roi_np, approach_poly,
-                           state, fps_smoothed, now, back_roi_np)
+                           state, fps_smoothed, now, back_roi_np, goalie_roi_np)
 
                 # Flash a big GOAL banner if we're within the flash window of
                 # the last detected goal. Compares to state.last_goal_emit which
@@ -1785,7 +1853,7 @@ def _draw_would_score_flash(img) -> None:
 
 def draw_debug(frame, fg, tracks, debug_contours, cfg,
                line_a, line_b, net_roi_np, approach_poly, state, fps, now,
-               back_roi_np=None):
+               back_roi_np=None, goalie_roi_np=None):
     # Static overlays:
     #   - approach zone in cyan (watch zone in front of the goal line)
     #   - net ROI in green (where pucks count as IN)
@@ -1795,6 +1863,8 @@ def draw_debug(frame, fg, tracks, debug_contours, cfg,
     cv2.polylines(frame, [net_roi_np], True, (0, 255, 0), 1)
     if back_roi_np is not None:
         cv2.polylines(frame, [back_roi_np], True, (0, 128, 255), 1)
+    if goalie_roi_np is not None:
+        cv2.polylines(frame, [goalie_roi_np], True, (255, 0, 255), 2)
     cv2.line(frame, line_a, line_b, (0, 0, 255), 2)
 
     # Pending goal indicator

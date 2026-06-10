@@ -268,7 +268,7 @@
       <div id="configForm"></div>
       <div class="config-save-bar">
         <button class="action secondary" id="btnReload">Reload</button>
-        <button class="action" id="btnSave">Save config</button>
+        <button class="action" id="btnSave">Save &amp; Restart Detector</button>
       </div>
     </div>
 
@@ -286,7 +286,7 @@
 // ---------------------------------------------------------------------------
 
 const RESTART = true;
-const LIVE    = false;
+const LIVE    = true;  // all settings require restart — no live reload exists
 
 // [key, label, type, options?, requiresRestart]
 // types: "text" | "number" | "boolean" | "select" | "readonly"
@@ -616,7 +616,8 @@ document.getElementById("btnSave").addEventListener("click", async () => {
     });
     if (!r.ok) throw new Error(await r.text());
     currentConfig = data;
-    showToast("Config saved — restart service to apply changes");
+    showToast("Config saved — restarting detector…");
+    await fetch("/api/restart", { method: "POST" });
   } catch (e) {
     showToast("Save failed: " + e, true);
   }

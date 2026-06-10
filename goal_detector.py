@@ -157,8 +157,12 @@ DEFAULT_CONFIG = {
 def load_config() -> dict:
     cfg = dict(DEFAULT_CONFIG)
     if CONFIG_PATH.exists():
-        with open(CONFIG_PATH) as f:
-            cfg.update(json.load(f))
+        try:
+            with open(CONFIG_PATH, encoding="utf-8-sig") as f:
+                cfg.update(json.load(f))
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"WARNING: config.json is invalid ({e}); using defaults. "
+                  f"Delete {CONFIG_PATH} and recalibrate.")
     return cfg
 
 

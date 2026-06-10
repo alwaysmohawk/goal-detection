@@ -350,7 +350,8 @@ if (-not $cfg) { $cfg = [PSCustomObject]@{} }
 
 if ($LucidSerialSuffix) {
     $cfg | Add-Member -NotePropertyName lucid_serial -NotePropertyValue $LucidSerialSuffix -Force
-    $cfg | ConvertTo-Json -Depth 10 | Set-Content $ConfigPath -Encoding utf8
+    $json = $cfg | ConvertTo-Json -Depth 10
+    [System.IO.File]::WriteAllText($ConfigPath, $json, [System.Text.UTF8Encoding]::new($false))
     Write-Ok "Camera serial suffix '$LucidSerialSuffix' written to config.json"
 }
 
